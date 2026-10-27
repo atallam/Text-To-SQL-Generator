@@ -5,7 +5,7 @@
 | **Owner** | Avinash Tallam |
 | **Status** | Draft v0.2 (decisions locked, section 13) |
 | **Tier** | Production |
-| **Working name** | Text to SQL Engine (`text2sql-engine`) |
+| **Repo name** | `Text-To-SQL-Generator` (Python package: `text2sql`) |
 | **Date** | 2026-10-25 (v0.2) |
 | **Source docs** | `Build Guide.md`, `Tech Stack.md` |
 
@@ -364,9 +364,9 @@ Switch to a hosted embedding API only if the Phase 1 table-recall metric misses 
 | 8 | Budget: not fixed; track cost per question and per eval run, set a soft ceiling after Phase 2 |
 | 9 | Time: 2 h/day |
 | 10 | Multi-source support is in v1 (Phase 5) |
+| 11 | Repo name: `Text-To-SQL-Generator` |
 
 ### Remaining questions
-1. Confirm project / repo name (working name: `text2sql-engine`).
-2. Is the WealthLens Supabase project the live one with real data, or a dev project? (Decides the read-only role setup and whether to seed synthetic data from day one.)
-3. Is the Supabase plan free tier? (Free projects pause when idle, which affects demos and CI.)
-4. Should the new repo live next to your other AI projects, and do you want it created with your `aiscaffold.py` before Phase 0 code starts?
+1. Is the WealthLens Supabase project the live one with real data, or a dev project? (Decides the read-only role setup and whether to seed synthetic data from day one.)
+2. Is the Supabase plan free tier? (Free projects pause when idle, which affects demos and CI.)
+3. Should the new repo live next to your other AI projects, and do you want it created with your `aiscaffold.py` before Phase 0 code starts?
