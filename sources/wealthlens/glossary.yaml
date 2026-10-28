@@ -1,0 +1,21 @@
+# Business glossary for the WealthLens source. Used in Phase 1 for prompts and ambiguity detection.
+terms:
+  spend:
+    definition: Sum of transactions.amount where txn_type = 'debit' and the category kind is 'expense'.
+    notes: Excludes transfers (card payments, investment transfers).
+  income:
+    definition: Sum of transactions.amount where txn_type = 'credit' and the category kind is 'income'.
+  net_savings:
+    definition: income minus spend for the same period.
+  savings_rate:
+    definition: net_savings divided by income, as a percentage.
+  net_worth:
+    definition: Latest holdings market value (quantity * latest close) plus bank balances minus card dues.
+    ambiguous: true
+    interpretations:
+      - Investments only (holdings x latest price)
+      - Investments plus bank balances minus credit card dues
+conventions:
+  - transactions.amount is always positive; direction is given by txn_type ('debit' or 'credit').
+  - Dates are calendar dates in the account's local time; the data ends on 2026-09-30.
+  - Currency is per account; most accounts are INR, one brokerage account is USD.

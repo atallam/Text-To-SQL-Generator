@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Owner** | Avinash Tallam |
-| **Status** | Draft v0.2 (decisions locked, section 13) |
+| **Status** | v0.3 - Phase 0 complete (see section 9, Phase 0 notes); Phase 1 next |
 | **Tier** | Production |
 | **Repo name** | `Text-To-SQL-Generator` (Python package: `text2sql`) |
 | **Date** | 2026-10-25 (v0.2) |
@@ -180,6 +180,8 @@ Effort is in hours, assuming AI-assisted coding at **2 hours/day (about 14 h/wee
 - Baseline LLM client wrapper: retry, Pydantic validation, token and latency logging.
 
 **Exit gate:** `docker compose up` brings up the stack; Supabase connection works with the read-only role; `readonly_user` provably fails on `INSERT/DROP`; one mocked-LLM test passes in CI.
+
+**Phase 0 result (2026-10-28):** exit gate met in a local embedded-Postgres run: 23 tests pass, including 13 integration tests proving the read-only role cannot INSERT/UPDATE/DELETE/DROP/TRUNCATE/CREATE/ALTER, the sandbox blocks writes even with admin credentials, and the statement timeout fires. Not yet verified: docker compose on your machine, the Supabase connection, and CI on GitHub. Deferred to the next sessions: Langfuse adapter (tracer interface and structlog tracer are in place), pre-commit hooks, API-key auth (lands with the API in Phase 4).
 
 ### Phase 1: Schema-Aware Prompt Engine (18 h)
 **Deliverables**

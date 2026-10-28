@@ -1,0 +1,18 @@
+name: wealthlens
+display_name: WealthLens (synthetic demo data)
+dialect: postgresql
+schema_name: public
+connection:
+  readonly_url_env: WEALTHLENS_READONLY_URL
+  admin_url_env: WEALTHLENS_ADMIN_URL
+statement_timeout_ms: 10000
+max_rows: 1000
+glossary: glossary.yaml
+sample_values:
+  default: never          # merchants, descriptions, names are never shown to the LLM
+  allow:
+    - accounts.account_type
+    - accounts.currency
+    - categories.kind
+    - transactions.txn_type
+    - assets.asset_type
