@@ -5,13 +5,12 @@ role. Core pipeline modules must never hard-code table or source names.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field
 
-from text2sql.config.settings import Settings, get_settings
+from text2sql.config.settings import Settings, get_env, get_settings
 
 
 class ConnectionConfig(BaseModel):
@@ -48,9 +47,12 @@ class SourceConfig(BaseModel):
 
 
 def _require_env(var: str) -> str:
-    value = os.environ.get(var)
+    value = get_env(var)
     if not value:
-        raise RuntimeError(f"Environment variable {var} is not set")
+        raise RuntimeError(
+            f"{var} is not set. Add it to the .env file in the project root (see .env.example) "
+            "or set it in your shell."
+        )
     return value
 
 

@@ -5,9 +5,7 @@ Needs WEALTHLENS_ADMIN_URL and WEALTHLENS_READONLY_PASSWORD in the environment /
 """
 from __future__ import annotations
 
-import os
-
-from text2sql.config.settings import get_settings
+from text2sql.config.settings import get_env, get_settings
 from text2sql.config.sources import load_source
 from text2sql.db.bootstrap import apply_schema, ensure_readonly_role, seed_tables
 from text2sql.observability.logging import configure_logging, get_logger
@@ -24,10 +22,10 @@ def main() -> None:
     counts = seed_tables(admin_url)
     log.info("seeded", **counts)
 
-    role = os.environ.get("WEALTHLENS_READONLY_USER", "t2s_readonly")
-    password = os.environ.get("WEALTHLENS_READONLY_PASSWORD")
+    role = get_env("WEALTHLENS_READONLY_USER", "t2s_readonly")
+    password = get_env("WEALTHLENS_READONLY_PASSWORD")
     if not password:
-        raise SystemExit("Set WEALTHLENS_READONLY_PASSWORD")
+        raise SystemExit("Set WEALTHLENS_READONLY_PASSWORD in .env")
     ensure_readonly_role(admin_url, role, password, src.schema_name, src.statement_timeout_ms)
     log.info("readonly_role_ready", role=role)
 

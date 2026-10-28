@@ -14,3 +14,15 @@ def test_wealthlens_source_loads():
 
 def test_list_sources():
     assert "wealthlens" in list_sources(Settings(_env_file=None))
+
+
+def test_get_env_falls_back_to_dotenv_file(tmp_path, monkeypatch):
+    from text2sql.config.settings import get_env
+
+    f = tmp_path / ".env"
+    f.write_text("T2S_FROM_DOTENV=hello\n", encoding="utf-8")
+    monkeypatch.delenv("T2S_FROM_DOTENV", raising=False)
+    assert get_env("T2S_FROM_DOTENV", env_file=f) == "hello"
+    monkeypatch.setenv("T2S_FROM_DOTENV", "shell-wins")
+    assert get_env("T2S_FROM_DOTENV", env_file=f) == "shell-wins"
+    assert get_env("T2S_MISSING", "dflt", env_file=f) == "dflt"

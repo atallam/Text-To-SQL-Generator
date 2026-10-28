@@ -1,17 +1,29 @@
 """Application settings (env / .env). Secrets never have defaults."""
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
+
+
+def get_env(var: str, default: str | None = None, env_file: Path | None = None) -> str | None:
+    """Read a variable from the process environment, falling back to the project .env file."""
+    value = os.environ.get(var)
+    if value:
+        return value
+    value = dotenv_values(env_file or ENV_FILE).get(var)
+    return value or default
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     anthropic_api_key: SecretStr | None = None
     llm_model_generation: str = "claude-sonnet-5-5"
