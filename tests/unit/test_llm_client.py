@@ -1,12 +1,17 @@
 from types import SimpleNamespace
 
 import anthropic
-import httpx
 import pytest
 from pydantic import BaseModel
 
 from text2sql.llm.client import LLMClient, LLMOutputError
 from text2sql.observability.tracing import MemoryTracer
+
+
+def _conn_error():
+    # The SDK only stores the request object, so a stand-in avoids depending on which HTTP
+    # library (httpx / httpx2) the installed SDK version uses.
+    return anthropic.APIConnectionError(request=SimpleNamespace(method="POST", url="https://x"))
 
 
 class Answer(BaseModel):
@@ -69,14 +74,14 @@ def test_gives_up_after_max_output_attempts(settings):
 
 
 def test_retries_transient_errors(settings):
-    err = anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))
+    err = _conn_error()
     c, sdk, _ = _client(settings, [err, err, _resp({"sql": "SELECT 1", "confidence": 1})])
     r = c.complete_structured(agent_name="gen", system="s", user="u", response_model=Answer)
     assert r.parsed.confidence == 1 and sdk.calls == 3
 
 
 def test_transient_errors_are_bounded(settings):
-    err = anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))
+    err = _conn_error()
     c, sdk, tr = _client(settings, [err, err, err, err])
     with pytest.raises(anthropic.APIConnectionError):
         c.complete_structured(agent_name="gen", system="s", user="u", response_model=Answer)
