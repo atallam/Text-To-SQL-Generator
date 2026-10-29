@@ -1,21 +1,140 @@
-# Business glossary for the WealthLens source. Used in Phase 1 for prompts and ambiguity detection.
+# Business glossary for the WealthLens source (PostgreSQL).
+#  * definition   -> injected into the prompt when the question mentions the term.
+#  * aliases      -> extra phrases that match the term.
+#  * ambiguous    -> the answer changes materially with the reading, so the engine ASKS instead of guessing.
+#                    Needs >= 2 interpretations, each with example_sql. `cues` resolve it from the question itself.
+#  * {TODAY}      -> replaced by the source's date expression (see as_of_date in source.yaml).
 terms:
   spend:
-    definition: Sum of transactions.amount where txn_type = 'debit' and the category kind is 'expense'.
+    definition: Sum of transactions.amount where txn_type = 'debit' and categories.kind = 'expense' (join transactions.category_id to categories.id).
     notes: Excludes transfers (card payments, investment transfers).
+    aliases: [spending, expense]
   income:
-    definition: Sum of transactions.amount where txn_type = 'credit' and the category kind is 'income'.
+    definition: Sum of transactions.amount where txn_type = 'credit' and categories.kind = 'income' (join transactions.category_id to categories.id).
+    aliases: [earn, earned, earnings]
   net_savings:
     definition: income minus spend for the same period.
   savings_rate:
     definition: net_savings divided by income, as a percentage.
+  portfolio_value:
+    definition: >-
+      Sum of holdings.quantity * the latest asset_prices.close (latest price_date) for each asset.
+      Prices are in each asset's currency and there is no FX table, so group by assets.currency.
+    aliases: [portfolio, market value, holdings value]
+  unrealized_gain:
+    definition: >-
+      Sum over holdings of quantity * (latest asset_prices.close - holdings.avg_cost),
+      grouped by assets.currency.
+    aliases: [gain, profit]
+  budget_variance:
+    definition: >-
+      budgets.amount minus actual spend (transactions joined to categories) for the same category and
+      month. A negative result means the budget was exceeded.
+    aliases: [over budget, under budget, budget overrun, budget vs actual]
+  goal_progress:
+    definition: goals.current_amount divided by goals.target_amount, as a percentage.
+    aliases: [how far along]
+
   net_worth:
-    definition: Latest holdings market value (quantity * latest close) plus bank balances minus card dues.
+    definition: Investments plus bank balances minus credit card dues.
     ambiguous: true
+    aliases: [net-worth, how much am i worth]
     interpretations:
-      - Investments only (holdings x latest price)
-      - Investments plus bank balances minus credit card dues
+      - label: Investments only (holdings x latest price)
+        cues: [investments only, only investments, investment net worth]
+        example_sql: |
+          WITH latest AS (
+            SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC
+          )
+          SELECT a.currency, SUM(h.quantity * l.close) AS investments_value
+          FROM holdings h
+          JOIN assets a ON a.id = h.asset_id
+          JOIN latest l ON l.asset_id = h.asset_id
+          GROUP BY a.currency
+      - label: Investments plus bank balances minus credit card dues (INR accounts)
+        cues: [including bank, with bank, bank balances, minus credit card, minus card dues, plus bank]
+        example_sql: |
+          WITH latest AS (
+            SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC
+          ),
+          investments AS (
+            SELECT COALESCE(SUM(h.quantity * l.close), 0) AS value
+            FROM holdings h
+            JOIN assets a ON a.id = h.asset_id
+            JOIN latest l ON l.asset_id = h.asset_id
+            WHERE a.currency = 'INR'
+          ),
+          cash AS (  -- bank balance minus card dues, derived from transaction history
+            SELECT COALESCE(SUM(CASE WHEN t.txn_type = 'credit' THEN t.amount ELSE -t.amount END), 0) AS value
+            FROM transactions t
+            JOIN accounts ac ON ac.id = t.account_id
+            WHERE ac.account_type IN ('bank', 'credit_card') AND ac.currency = 'INR'
+          )
+          SELECT investments.value + cash.value AS net_worth_inr FROM investments, cash
+
+  savings:
+    definition: Money kept rather than spent.
+    ambiguous: true
+    aliases: [saved, save, saving]
+    interpretations:
+      - label: Net savings for a period (income minus spend)
+        cues: [net savings, income minus, from my income, per month, each month, this year, last year]
+        example_sql: |
+          SELECT
+            SUM(CASE WHEN c.kind = 'income'  AND t.txn_type = 'credit' THEN t.amount ELSE 0 END)
+          - SUM(CASE WHEN c.kind = 'expense' AND t.txn_type = 'debit'  THEN t.amount ELSE 0 END) AS net_savings
+          FROM transactions t
+          JOIN categories c ON c.id = t.category_id
+          WHERE t.txn_date > {TODAY} - interval '12 months'
+      - label: Amount set aside toward savings goals
+        cues: [goal, goals, toward, towards, target]
+        example_sql: |
+          SELECT SUM(current_amount) AS saved_toward_goals FROM goals
+
+  returns:
+    definition: How well the investments have done.
+    ambiguous: true
+    aliases: [return, performance, performing, perform]
+    interpretations:
+      - label: Absolute gain (current value minus cost, per currency)
+        cues: [gain, profit, absolute, in rupees, in dollars]
+        example_sql: |
+          WITH latest AS (
+            SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC
+          )
+          SELECT a.currency, SUM(h.quantity * (l.close - h.avg_cost)) AS unrealized_gain
+          FROM holdings h
+          JOIN assets a ON a.id = h.asset_id
+          JOIN latest l ON l.asset_id = h.asset_id
+          GROUP BY a.currency
+      - label: Percentage return on cost
+        cues: [percent, percentage, pct, "%"]
+        example_sql: |
+          WITH latest AS (
+            SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC
+          )
+          SELECT a.symbol,
+                 ROUND(100.0 * (l.close - h.avg_cost) / NULLIF(h.avg_cost, 0), 1) AS return_pct
+          FROM holdings h
+          JOIN assets a ON a.id = h.asset_id
+          JOIN latest l ON l.asset_id = h.asset_id
+          ORDER BY return_pct DESC
+
+  recent:
+    definition: A vague time window.
+    ambiguous: true
+    aliases: [recently, lately]
+    interpretations:
+      - label: Last 30 days
+        cues: [30 days, last month, past month, this month, week]
+        example_sql: |
+          SELECT * FROM transactions WHERE txn_date > {TODAY} - interval '30 days' ORDER BY txn_date DESC
+      - label: Last 90 days
+        cues: [90 days, 3 months, three months, quarter]
+        example_sql: |
+          SELECT * FROM transactions WHERE txn_date > {TODAY} - interval '90 days' ORDER BY txn_date DESC
+
 conventions:
   - transactions.amount is always positive; direction is given by txn_type ('debit' or 'credit').
   - Dates are calendar dates in the account's local time; the data ends on 2026-09-30.
-  - Currency is per account; most accounts are INR, one brokerage account is USD.
+  - Currency is per account (and per asset); most are INR, one brokerage account is USD. There is no FX table, so never add amounts in different currencies together; group by currency instead.

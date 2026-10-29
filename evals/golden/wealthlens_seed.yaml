@@ -1,0 +1,42 @@
+# Early seed set for the WealthLens source (PRD Phase 1 exit gate: table recall >= 95%).
+# required_tables = the tables a correct SQL answer must read (written from the schema, NOT tuned to
+# the retrieval method). Run: python -m evals.table_recall
+source: wealthlens
+
+questions:
+  - {id: q01, question: "How much did I spend on groceries last month?", required_tables: [transactions, categories]}
+  - {id: q02, question: "What is my total income for 2025?", required_tables: [transactions, categories]}
+  - {id: q03, question: "Show my monthly spend for the last 6 months", required_tables: [transactions, categories]}
+  - {id: q04, question: "What are my top 5 expense categories this year?", required_tables: [transactions, categories]}
+  - {id: q05, question: "Which credit card did I use the most in September 2026?", required_tables: [transactions, accounts]}
+  - {id: q06, question: "List all my accounts and their currencies", required_tables: [accounts]}
+  - {id: q07, question: "What is the current value of my portfolio?", required_tables: [holdings, asset_prices]}
+  - {id: q08, question: "How many units of each stock do I hold?", required_tables: [holdings, assets]}
+  - {id: q09, question: "What is the average cost of my ETF holdings?", required_tables: [holdings, assets]}
+  - {id: q10, question: "Which month had the highest dining spend?", required_tables: [transactions, categories]}
+  - {id: q11, question: "Am I over budget on any category in September 2026?", required_tables: [budgets, transactions, categories]}
+  - {id: q12, question: "How much have I saved toward each goal?", required_tables: [goals]}
+  - {id: q13, question: "Which goals are due in the next 12 months?", required_tables: [goals]}
+  - {id: q14, question: "What was my savings rate in 2025?", required_tables: [transactions, categories]}
+  - {id: q15, question: "How much did I earn in dividends last year?", required_tables: [transactions, categories]}
+  - {id: q16, question: "Show my 10 largest transactions in the brokerage account", required_tables: [transactions, accounts]}
+  - {id: q17, question: "What was the closing price of each asset at the end of last month?", required_tables: [asset_prices, assets]}
+  - {id: q18, question: "How much rent did I pay each year?", required_tables: [transactions, categories]}
+  - {id: q19, question: "What is the budget for Transport in July 2026?", required_tables: [budgets, categories]}
+  - {id: q20, question: "Which merchants did I spend the most at?", required_tables: [transactions]}
+
+# Phase 1 acceptance: ambiguous questions return a clarification, never SQL.
+ambiguity:
+  - {question: "What is my net worth?", expect: clarification, terms: [net_worth]}
+  - {question: "How are my investments performing?", expect: clarification, terms: [returns]}
+  - {question: "How much have I saved?", expect: clarification, terms: [savings]}
+  - {question: "What did I spend recently?", expect: clarification, terms: [recent]}
+  - {question: "What is my net worth and how are my investments performing?", expect: clarification, terms: [net_worth, returns]}
+  # Clear questions must NOT be interrupted:
+  - {question: "What is my total spend in 2025?", expect: ready}
+  - {question: "What was my savings rate in 2025?", expect: ready}
+  - {question: "What is my net savings last year?", expect: ready}
+  - {question: "What is my net worth including bank balances?", expect: ready}
+  - {question: "What is the percentage return on each of my holdings?", expect: ready}
+  - {question: "How much have I saved toward each goal?", expect: ready}
+  - {question: "Show recent transactions from the last 30 days", expect: ready}

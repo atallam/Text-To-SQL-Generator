@@ -1,0 +1,554 @@
+{
+  "source": "wealthlens",
+  "dialect": "postgresql",
+  "schema_name": "public",
+  "tables": [
+    {
+      "name": "accounts",
+      "comment": null,
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "institution",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "account_type",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": [
+            "bank",
+            "credit_card",
+            "brokerage"
+          ],
+          "sample_values": []
+        },
+        {
+          "name": "currency",
+          "type": "char(3)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": [
+            "INR",
+            "USD"
+          ]
+        },
+        {
+          "name": "opened_on",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": []
+    },
+    {
+      "name": "asset_prices",
+      "comment": "Month-end closing prices per asset.",
+      "columns": [
+        {
+          "name": "asset_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "price_date",
+          "type": "date",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "close",
+          "type": "numeric(14, 4)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "asset_id",
+        "price_date"
+      ],
+      "foreign_keys": [
+        {
+          "columns": [
+            "asset_id"
+          ],
+          "ref_table": "assets",
+          "ref_columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "assets",
+      "comment": null,
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "symbol",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "asset_type",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": [
+            "stock",
+            "mutual_fund",
+            "etf",
+            "bond"
+          ],
+          "sample_values": []
+        },
+        {
+          "name": "currency",
+          "type": "char(3)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": []
+    },
+    {
+      "name": "budgets",
+      "comment": "Monthly budget per expense category.",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "category_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "month",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "amount",
+          "type": "numeric(14, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "columns": [
+            "category_id"
+          ],
+          "ref_table": "categories",
+          "ref_columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "comment": "Spending/income categories. kind separates expense, income and transfers.",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": [
+            "income",
+            "expense",
+            "transfer"
+          ],
+          "sample_values": []
+        },
+        {
+          "name": "parent_id",
+          "type": "integer",
+          "nullable": true,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "columns": [
+            "parent_id"
+          ],
+          "ref_table": "categories",
+          "ref_columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "goals",
+      "comment": "Savings goals with target and current amount.",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "target_amount",
+          "type": "numeric(14, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "current_amount",
+          "type": "numeric(14, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "target_date",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": []
+    },
+    {
+      "name": "holdings",
+      "comment": "Current investment positions per brokerage account.",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "account_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "asset_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "quantity",
+          "type": "numeric(18, 4)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "avg_cost",
+          "type": "numeric(14, 4)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "as_of",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "columns": [
+            "account_id"
+          ],
+          "ref_table": "accounts",
+          "ref_columns": [
+            "id"
+          ]
+        },
+        {
+          "columns": [
+            "asset_id"
+          ],
+          "ref_table": "assets",
+          "ref_columns": [
+            "id"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "transactions",
+      "comment": "One row per bank or card transaction. amount is always positive; txn_type gives the direction.",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "account_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "category_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "txn_date",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "amount",
+          "type": "numeric(14, 2)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": "Absolute amount in the transaction currency.",
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "currency",
+          "type": "char(3)",
+          "nullable": false,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "txn_type",
+          "type": "text",
+          "nullable": false,
+          "primary_key": false,
+          "comment": "debit = money out, credit = money in.",
+          "allowed_values": [
+            "debit",
+            "credit"
+          ],
+          "sample_values": []
+        },
+        {
+          "name": "merchant",
+          "type": "text",
+          "nullable": true,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true,
+          "primary_key": false,
+          "comment": null,
+          "allowed_values": null,
+          "sample_values": []
+        }
+      ],
+      "primary_key": [
+        "id"
+      ],
+      "foreign_keys": [
+        {
+          "columns": [
+            "account_id"
+          ],
+          "ref_table": "accounts",
+          "ref_columns": [
+            "id"
+          ]
+        },
+        {
+          "columns": [
+            "category_id"
+          ],
+          "ref_table": "categories",
+          "ref_columns": [
+            "id"
+          ]
+        }
+      ]
+    }
+  ],
+  "fingerprint": "27372fadbf21c05e"
+}

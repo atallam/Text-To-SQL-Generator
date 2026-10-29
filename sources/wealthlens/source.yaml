@@ -8,6 +8,8 @@ connection:
 statement_timeout_ms: 10000
 max_rows: 1000
 glossary: glossary.yaml
+examples: examples.yaml
+as_of_date: 2026-09-30   # demo data ends here; "last month" means August 2026, not the real calendar
 sample_values:
   default: never          # merchants, descriptions, names are never shown to the LLM
   allow:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from dotenv import dotenv_values
 from pydantic import SecretStr
@@ -36,6 +37,11 @@ class Settings(BaseSettings):
 
     default_source: str = "wealthlens"
     sources_dir: Path = PROJECT_ROOT / "sources"
+
+    # Embeddings for schema relevance and few-shot retrieval. "lexical" needs no extra install.
+    embedding_provider: Literal["sentence-transformers", "lexical"] = "sentence-transformers"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    schema_refresh_s: float = 60.0  # how often the schema fingerprint is re-checked for DB changes
 
     log_level: str = "INFO"
     log_json: bool = False

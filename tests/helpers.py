@@ -1,0 +1,92 @@
+"""Shared test helpers (importable: ``from tests.helpers import ...``)."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import numpy as np
+
+from text2sql.config.sources import SourceConfig
+from text2sql.schema.model import Column, ForeignKey, SchemaSnapshot, Table, compute_fingerprint
+
+ROOT = Path(__file__).resolve().parents[1]
+FIXTURES = ROOT / "tests" / "fixtures"
+SNAPSHOTS = ROOT / "tests" / "snapshots"
+
+
+def source_config(**overrides) -> SourceConfig:
+    data = dict(
+        name="testsrc",
+        display_name="Test Source",
+        dialect="postgresql",
+        connection={"readonly_url_env": "UNUSED_FOR_TESTS"},
+    )
+    data.update(overrides)
+    return SourceConfig.model_validate(data)
+
+
+def make_snapshot(spec: dict[str, dict], dialect: str = "postgresql") -> SchemaSnapshot:
+    """spec = {"orders": {"cols": [...], "fks": {"supplier_id": "suppliers"}, "comment": "..."}}"""
+    tables = []
+    for name, t in spec.items():
+        fks = [
+            ForeignKey(columns=[c], ref_table=ref, ref_columns=["id"]) for c, ref in t.get("fks", {}).items()
+        ]
+        cols = [
+            Column(
+                name=c, type="integer" if c == "id" or c.endswith("_id") else "text", primary_key=c == "id"
+            )
+            for c in t["cols"]
+        ]
+        tables.append(
+            Table(name=name, comment=t.get("comment"), columns=cols, primary_key=["id"], foreign_keys=fks)
+        )
+    return SchemaSnapshot(
+        source="testsrc",
+        dialect=dialect,
+        schema_name="public",
+        tables=tables,
+        fingerprint=compute_fingerprint(tables),
+    )
+
+
+class StubEmbedder:
+    """Keyword-count embedder: gives tests exact control over similarity scores."""
+
+    name = "stub"
+
+    def __init__(self, keywords: list[str]):
+        self.keywords = [k.lower() for k in keywords]
+
+    def _vec(self, text: str) -> np.ndarray:
+        low = text.lower()
+        v = np.array([float(low.count(k)) for k in self.keywords], dtype=np.float32)
+        n = np.linalg.norm(v)
+        return v / n if n else v
+
+    def embed_documents(self, texts: list[str]) -> np.ndarray:
+        return (
+            np.vstack([self._vec(t) for t in texts])
+            if texts
+            else np.zeros((0, len(self.keywords)), np.float32)
+        )
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self._vec(text)
+
+
+def assert_snapshot(name: str, text: str) -> None:
+    """Golden-file check. Review the diff, then regenerate with UPDATE_SNAPSHOTS=1 (PowerShell:
+    ``$env:UPDATE_SNAPSHOTS = "1"; pytest tests/unit/test_prompts.py``)."""
+    path = SNAPSHOTS / f"{name}.txt"
+    if os.environ.get("UPDATE_SNAPSHOTS") == "1":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8", newline="\n")
+        return
+    assert path.is_file(), f"missing snapshot {path.name}; create it with UPDATE_SNAPSHOTS=1"
+    expected = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert text == expected, (
+        f"prompt snapshot {path.name} changed. If intended, bump the prompt version or regenerate with "
+        "UPDATE_SNAPSHOTS=1 and review the diff."
+    )

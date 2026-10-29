@@ -10,6 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "anthropic>=0.40",
+  "jinja2>=3.1",
+  "numpy>=1.26",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
   "sqlalchemy>=2.0",
@@ -22,13 +24,20 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov", "ruff>=0.5", "pgserver"]
 evals = ["datasets>=3.0"]
+embeddings = ["sentence-transformers>=3.0"]  # local BAAI/bge-small-en-v1.5; pulls in PyTorch (large)
 
 [tool.setuptools.packages.find]
 include = ["text2sql*"]
 
+[tool.setuptools.package-data]
+text2sql = ["prompts/templates/*.j2"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["integration: needs a real Postgres (set T2S_TEST_ADMIN_URL)"]
+markers = [
+  "integration: needs a real Postgres (set T2S_TEST_ADMIN_URL)",
+  "embeddings: needs sentence-transformers and a one-time model download",
+]
 
 [tool.ruff]
 line-length = 110

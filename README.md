@@ -3,14 +3,14 @@
 Natural-language questions to SQL, with layered guardrails, hallucination detection and a decomposed
 confidence score. Production-tier build; see `PRD.md` for scope, phases and decisions.
 
-**Status:** Phase 0 (foundation) complete. Eval numbers will lead this README after Phase 6.
+**Status:** Phase 0 (foundation) and Phase 1 (schema-aware prompt engine) complete. Eval numbers will lead this README after Phase 6.
 
 ## Quick start (PowerShell)
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+pip install -e ".[dev,evals,embeddings]"   # embeddings = bge-small relevance filter
 Copy-Item .env.example .env        # then fill in ANTHROPIC_API_KEY and passwords
 docker compose up -d db
 python -m scripts.seed_wealthlens   # schema + synthetic data + read-only role
@@ -31,10 +31,31 @@ pytest -q
 | `text2sql/config` | Settings and per-source config loader |
 | `text2sql/connectors` | Database-agnostic connector interface + Postgres/Supabase |
 | `text2sql/db` | Schema, seed and read-only role bootstrap |
+| `text2sql/schema` | Introspection, schema snapshot + fingerprint, glossary, relevance filter, refresh provider |
+| `text2sql/generation` | Ambiguity handler, few-shot selector, `ContextBuilder` (question -> prompt or clarification) |
+| `text2sql/prompts` | Versioned Jinja2 templates (`sql_generation.v1.*`) |
 | `text2sql/llm` | LLM client: retry, Pydantic-validated structured output, tracing |
 | `text2sql/observability` | Structured logging and LLM call tracing |
 | `sources/<name>` | Per-source bundle: `source.yaml`, schema, glossary |
 | `scripts` | Seeding and utilities |
+
+## Phase 1: schema-aware prompts
+
+`ContextBuilder.prepare(question)` returns either a ready `PromptBundle` (system + user prompt holding only the
+relevant tables, glossary definitions and few-shot examples) or a `ClarificationRequest` for ambiguous terms such
+as "net worth" or "returns". No LLM call is made in this phase.
+
+```powershell
+python -m scripts.dump_schema --source wealthlens --out tests/fixtures/wealthlens_schema.json
+python -m evals.table_recall --embedder sentence-transformers   # table-recall gate (>= 95%)
+python -m evals.table_recall --embedder lexical                 # offline, no model download
+$env:UPDATE_SNAPSHOTS = "1"; pytest tests/unit/test_prompts.py; Remove-Item Env:UPDATE_SNAPSHOTS   # refresh prompt snapshots
+```
+
+Measured on the 20-question WealthLens seed set (`evals/golden/wealthlens_seed.yaml`): bge-small 20/20 table
+recall, lexical 19/20; ambiguity handling 12/12. The seed set is small and author-written, so treat it as a
+smoke gate, not independent evidence. Sample values are never sent to the LLM unless a column is allow-listed
+in `source.yaml`.
 
 ## Evaluation data (Hugging Face)
 
