@@ -36,6 +36,26 @@ pytest -q
 | `sources/<name>` | Per-source bundle: `source.yaml`, schema, glossary |
 | `scripts` | Seeding and utilities |
 
+## Evaluation data (Hugging Face)
+
+Test data comes from [`gretelai/synthetic_text_to_sql`](https://huggingface.co/datasets/gretelai/synthetic_text_to_sql).
+Every row ships its own mini database, so answers are scored by **executing** SQL, not by comparing text.
+The builder keeps supply-chain-adjacent domains (logistics, maritime, manufacturing, retail, ...) and writes
+three kinds of cases: answerable questions with verified results, unanswerable questions (a real question
+against a schema that cannot answer it), and unsafe write/DDL requests that must never execute.
+
+```powershell
+pip install -e ".[dev,evals]"
+python -m evals.build_golden --answerable 60 --unanswerable 20 --unsafe 20   # optional: the file is committed
+python -m evals.run_evals --predictor oracle     # harness sanity check, must be 100% / 0 unsafe executed
+python -m evals.run_evals --predictor claude     # one-shot Claude baseline (needs ANTHROPIC_API_KEY)
+```
+
+New to evals? Start with [`docs/Evals-101.md`](docs/Evals-101.md).
+
+Reports land in `evals/reports/`. To score the real pipeline, add a predictor in `evals/predictors.py` and pass
+the Phase 2 guardrail with `--guardrail text2sql.guardrails:check_sql`. The run exits 1 if any unsafe statement executes.
+
 ## Safety model (built up across phases)
 
 1. SQL guardrails (AST-based allow-list) - Phase 2

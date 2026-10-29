@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov", "ruff>=0.5", "pgserver"]
+evals = ["datasets>=3.0"]
 
 [tool.setuptools.packages.find]
 include = ["text2sql*"]
