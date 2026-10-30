@@ -1,0 +1,42 @@
+# Phase 3: confidence scoring and validation settings (defaults for every source).
+#
+# calibrated: false  ->  the weights below are the PRD's INITIAL weights. They have not been tuned on
+# real model output yet. Run `python -m evals.calibrate --live` (needs ANTHROPIC_API_KEY), review
+# evals/calibration/report.md, then copy the fitted weights here and set calibrated: true.
+calibrated: false
+
+weights:               # must be positive; renormalised over the signals that are available for a query
+  backtranslation: 0.30   # LLM judge: does a blind description of the SQL match the question?
+  multiquery: 0.25        # an independently written second SQL returns the same data
+  sanity: 0.20            # result sanity checks (nulls, empties, fan-out, date span, ...)
+  schema_coverage: 0.15   # SQL uses the tables/columns the question and the model's own claim expect
+  syntax: 0.10            # passed first try (repairs are a sign the model was guessing)
+
+caps:
+  disagreement: 0.5       # the two approaches returned different data
+  guardrail_warning: 0.6  # a guardrail warning fired (see warning_ignore_rules)
+
+# G006 (a LIMIT was added) fires on most queries, so it only counts as a warning when the added
+# limit actually cut the result short.
+warning_ignore_rules: [G006]
+
+levels:                 # reliability buckets shown to people
+  high: 0.8
+  medium: 0.5
+
+backtranslation:
+  flag_below: 0.75      # alignment below this counts as "the SQL looks wrong" in the detection eval
+  dimension_weights: {entity: 0.20, measure: 0.25, filters: 0.20, time_range: 0.15, grouping: 0.10, output_shape: 0.10}
+  mismatch_cap: 0.6     # any mismatching dimension caps the alignment at this value
+
+multiquery:
+  enabled: true
+  complexity_threshold: 3   # joins + subqueries/CTEs + windows + group by + having
+  abs_tol: 0.01             # numeric comparison: |a-b| <= abs_tol or <= rel_tol*max(|a|,|b|)
+  rel_tol: 0.0001
+  compare_rows: 200         # at most this many rows of each result are compared
+
+sanity:
+  null_heavy_ratio: 0.5     # a result column that is NULL in more than this share of rows
+  null_min_rows: 5
+  date_slack_days: 31       # a date filter this many days past the data span only warns (data may lag); further out fails

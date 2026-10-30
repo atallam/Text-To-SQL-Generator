@@ -2,6 +2,7 @@
 
 Runs only when T2S_TEST_ADMIN_URL points at a throwaway Postgres (CI service / pgserver).
 """
+
 import os
 from pathlib import Path
 
@@ -35,8 +36,11 @@ def db():
 def cfg():
     return SourceConfig.model_validate(
         dict(
-            name="t", display_name="t", dialect="postgresql",
-            connection=dict(readonly_url_env="X"), statement_timeout_ms=10_000,
+            name="t",
+            display_name="t",
+            dialect="postgresql",
+            connection=dict(readonly_url_env="X"),
+            statement_timeout_ms=10_000,
         )
     )
 
@@ -96,5 +100,3 @@ def test_sandbox_statement_timeout(db, cfg):
 
 def test_connector_health_check(db, cfg):
     assert PostgresConnector(cfg, url=db).health_check() is True
-
-

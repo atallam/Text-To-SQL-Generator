@@ -1,4 +1,5 @@
-"""End-to-end pipeline (Phases 1-2): question -> context -> generate/repair -> guardrails -> sandbox.
+"""End-to-end pipeline (Phases 1-3): question -> context -> generate/repair -> guardrails -> sandbox
+-> validation and confidence.
 
     t2s = Text2SQL.from_source("wealthlens")
     out = t2s.ask("How much did I spend on groceries last month?")
@@ -31,6 +32,7 @@ from text2sql.guardrails.engine import GuardrailEngine
 from text2sql.guardrails.explain_gate import ExplainGate
 from text2sql.llm.client import LLMClient
 from text2sql.observability.logging import get_logger
+from text2sql.validation import ValidationReport, Validator, load_validation_config
 
 log = get_logger("pipeline")
 
@@ -64,7 +66,12 @@ class QueryOutcome(BaseModel):
     clarification: ClarificationRequest | None = None
     attempts: list[Attempt] = Field(default_factory=list)
     prompt_version: str | None = None
+    validation: ValidationReport | None = None  # Phase 3: confidence score + the evidence behind it
     timings_ms: dict[str, int] = Field(default_factory=dict)
+
+    @property
+    def confidence(self) -> float | None:
+        return self.validation.confidence.score if self.validation else None
 
 
 def _summary(decision: Any, explain: Any) -> GuardrailSummary | None:
@@ -97,8 +104,10 @@ class Text2SQL:
         gate: ExplainGate,
         executor: Executor,
         max_iterations: int = 3,
+        validator: Validator | None = None,
     ):
         self.builder, self.engine, self.gate, self.executor = builder, engine, gate, executor
+        self.validator = validator  # None = no confidence scoring (Phase 2 behaviour)
         self.loop = RepairLoop(
             generator=generator,
             engine=engine,
@@ -117,6 +126,7 @@ class Text2SQL:
         connector: Connector | None = None,
         settings: Settings | None = None,
         max_iterations: int = 3,
+        validate: bool = True,
         **builder_kwargs: Any,
     ) -> Text2SQL:
         settings = settings or get_settings()
@@ -124,13 +134,30 @@ class Text2SQL:
         connector = connector or get_connector(cfg)
         guard_cfg = load_guardrail_config(cfg)
         builder = ContextBuilder.from_source(cfg, connector=connector, settings=settings, **builder_kwargs)
+        llm = llm or LLMClient(settings)
+        engine = GuardrailEngine(guard_cfg)
+        gate = ExplainGate(connector, guard_cfg.explain, guard_cfg.statement_timeout_ms)
+        executor = Executor(connector, guard_cfg.row_limit.max_rows, guard_cfg.statement_timeout_ms)
+        validator = (
+            Validator.build(
+                llm=llm,
+                engine=engine,
+                gate=gate,
+                executor=executor,
+                cfg=load_validation_config(cfg),
+                settings=settings,
+            )
+            if validate
+            else None
+        )
         return cls(
             builder=builder,
-            generator=SQLGenerator(llm or LLMClient(settings)),
-            engine=GuardrailEngine(guard_cfg),
-            gate=ExplainGate(connector, guard_cfg.explain, guard_cfg.statement_timeout_ms),
-            executor=Executor(connector, guard_cfg.row_limit.max_rows, guard_cfg.statement_timeout_ms),
+            generator=SQLGenerator(llm),
+            engine=engine,
+            gate=gate,
+            executor=executor,
             max_iterations=max_iterations,
+            validator=validator,
         )
 
     # -- natural language ---------------------------------------------------------------------
@@ -167,7 +194,15 @@ class Text2SQL:
             attempts=res.attempts,
             prompt_version=prompt.version,
         )
-        return self._finish(out, t0, prepared.timings_ms)
+        timings = dict(prepared.timings_ms)
+        if self.validator is not None and res.status in ("success", "unanswerable"):
+            v0 = time.perf_counter()
+            try:
+                out.validation = self.validator.validate(question, prompt, res, self.builder.schema.get())
+            except Exception as exc:  # noqa: BLE001  the answer stands even if scoring fails
+                log.error("validation_error", audit_id=audit_id, error=repr(exc)[:300])
+            timings["validation"] = int((time.perf_counter() - v0) * 1000)
+        return self._finish(out, t0, timings)
 
     # -- user-supplied SQL (same safety path, no LLM) -----------------------------------------
     def run_sql(self, sql: str) -> QueryOutcome:
@@ -209,6 +244,8 @@ class Text2SQL:
             rule_ids=out.guardrail.rule_ids if out.guardrail else [],
             result_hash=out.execution.result_hash if out.execution else None,
             rows=out.execution.row_count if out.execution else None,
+            confidence=out.confidence,
+            confidence_level=out.validation.confidence.level if out.validation else None,
             ms=out.timings_ms.get("request"),
         )
         return out

@@ -74,6 +74,33 @@ def show(out: QueryOutcome, rows: int) -> None:
         print(e.to_dataframe().head(rows).to_string(index=False))
 
 
+BAR = 20
+
+
+def show_confidence(out: QueryOutcome) -> None:
+    v = out.validation
+    if v is None:
+        return
+    c = v.confidence
+    if c.level == "cannot_answer":
+        print("\nConfidence: n/a (the schema cannot answer this question)")
+        return
+    filled = round(c.score * BAR)
+    cal = "" if c.calibrated else "  (initial weights, not yet calibrated)"
+    print(f"\nConfidence: [{'#' * filled}{'.' * (BAR - filled)}] {c.score:.2f} {c.level.upper()}{cal}")
+    for s in c.signals:
+        mark = "  -  " if s.value is None else f"{s.value:5.2f}"
+        print(f"  {s.name:<16} {mark}  {s.detail[:110]}")
+    for reason in c.caps_applied:
+        print(f"  cap: {reason}")
+    alt = v.alternative
+    if alt is not None and alt.status == "disagree":
+        print("\nA second, independent query returned DIFFERENT data. Approach B:")
+        print(f"{alt.sql}\n  columns: {alt.columns}  first rows: {alt.preview_rows[:5]}")
+    for err in v.errors:
+        print(f"  (not measured: {err[:120]})")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("question", nargs="?")
@@ -83,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rows", type=int, default=20, help="rows to print")
     p.add_argument("--max-iterations", type=int, default=3)
     p.add_argument("--show-prompt", action="store_true")
+    p.add_argument("--no-validate", action="store_true", help="skip confidence scoring (fewer model calls)")
     p.add_argument("--verbose", action="store_true", help="show structured logs")
     args = p.parse_args(argv)
     if not args.question and not args.sql:
@@ -91,7 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     configure_logging("INFO" if args.verbose else "CRITICAL", json=False)
     t2s = Text2SQL.from_source(
-        args.source or settings.default_source, max_iterations=args.max_iterations, settings=settings
+        args.source or settings.default_source,
+        max_iterations=args.max_iterations,
+        settings=settings,
+        validate=not args.no_validate,
     )
     if args.sql:
         show(t2s.run_sql(args.sql), args.rows)
@@ -102,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             print(prepared.prompt.system, "\n", "-" * 60, "\n", prepared.prompt.user, "\n", "=" * 60, sep="")
     out = t2s.ask(args.question, parse_clarifications(args.clarify))
     show(out, args.rows)
+    show_confidence(out)
     return 0 if out.status in ("success", "needs_clarification", "unanswerable") else 1
 
 

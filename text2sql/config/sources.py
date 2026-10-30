@@ -55,6 +55,7 @@ class SourceConfig(BaseModel):
     max_rows: int = 1000
     glossary: str | None = None  # file name inside the source folder
     guardrails: str | None = None  # per-source overrides for text2sql/config/guardrails.yaml
+    validation: str | None = None  # per-source overrides for text2sql/config/confidence.yaml
     examples: str | None = None  # few-shot question -> SQL pairs, file name inside the source folder
     exclude_tables: list[str] = Field(default_factory=list)  # never introspected or shown to the LLM
     # "Today" for relative dates ("last month"). None = the real CURRENT_DATE. Demo data with a fixed

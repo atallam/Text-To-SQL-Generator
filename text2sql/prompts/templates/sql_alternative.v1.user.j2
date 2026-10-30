@@ -1,0 +1,13 @@
+{{ original_prompt }}
+
+## Independent second solution
+Another analyst already wrote the query below (approach A). Write approach B: a query that answers the SAME question and must return the same answer, but is built differently.
+
+Approach A (do not copy its structure):
+{{ primary_sql | trim }}
+
+Approach B must differ in how the answer is computed, for example:
+- reach the data through a different join path, or aggregate before joining instead of after (or the reverse);
+- use a CTE where A uses a subquery, or a window function where A uses GROUP BY, or conditional aggregation where A uses a join;
+- express filters and date ranges independently from first principles instead of reusing A's.
+Do not simply reorder clauses or rename aliases. Re-read the question and the glossary definitions and derive the answer yourself. Do not assume approach A is correct. Keep to the same rules: one read-only SELECT, only the listed tables and columns.

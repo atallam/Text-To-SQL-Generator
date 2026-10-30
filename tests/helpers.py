@@ -120,3 +120,54 @@ def gen(sql: str = "SELECT 1", **kw):
     kw.setdefault("explanation", "test query")
     kw.setdefault("self_confidence", 0.9)
     return GeneratedSQL(sql=sql, **kw)
+
+
+# -- Phase 3 helpers ---------------------------------------------------------------------------
+def exec_result(columns, rows, *, truncated: bool = False, sql: str = "SELECT 1"):
+    from text2sql.execution.executor import ExecutionResult
+
+    return ExecutionResult(
+        columns=list(columns),
+        rows=[list(r) for r in rows],
+        row_count=len(rows),
+        truncated=truncated,
+        elapsed_ms=1,
+        result_hash="h",
+        sql=sql,
+    )
+
+
+class FakeExecutor:
+    """Executor stand-in: ``answers`` maps a substring of the SQL to (columns, rows). First match wins."""
+
+    def __init__(self, answers: dict[str, tuple[list[str], list[list]]] | None = None):
+        self.answers = answers or {}
+        self.sqls: list[str] = []
+
+    def run(self, sql: str):
+        from text2sql.execution.executor import ExecutionError
+
+        self.sqls.append(sql)
+        for needle, (cols, rows) in self.answers.items():
+            if needle in sql:
+                return exec_result(cols, rows, sql=sql)
+        raise ExecutionError("sql_error", f"no fake answer for: {sql}")
+
+
+def typed_snapshot(spec: dict[str, dict]):
+    """spec = {"t": {"cols": {"id": "integer", "d": "date"}, "pk": ["id"], "fks": {"cat_id": "c"}}}"""
+    from text2sql.schema.model import Column, ForeignKey
+
+    tables = []
+    for name, t in spec.items():
+        pk = t.get("pk", ["id"])
+        cols = [Column(name=c, type=ty, primary_key=c in pk) for c, ty in t["cols"].items()]
+        fks = [ForeignKey(columns=[c], ref_table=r, ref_columns=["id"]) for c, r in t.get("fks", {}).items()]
+        tables.append(Table(name=name, columns=cols, primary_key=pk, foreign_keys=fks))
+    return SchemaSnapshot(
+        source="testsrc",
+        dialect="postgresql",
+        schema_name="public",
+        tables=tables,
+        fingerprint=compute_fingerprint(tables),
+    )

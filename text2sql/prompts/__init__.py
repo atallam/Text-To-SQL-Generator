@@ -13,8 +13,23 @@ from jinja2 import Environment, PackageLoader, StrictUndefined
 
 SQL_GENERATION = "sql_generation"
 SQL_REPAIR = "sql_repair"
-LATEST_VERSIONS = {SQL_GENERATION: "v2", SQL_REPAIR: "v1"}
-PARTS = {SQL_GENERATION: ("system", "user"), SQL_REPAIR: ("user",)}  # template files per prompt
+SQL_DESCRIPTION = "sql_description"  # Phase 3: back-translation (sees the SQL, never the question)
+SQL_JUDGE = "sql_judge"  # Phase 3: alignment judge (sees the question + description, never the SQL)
+SQL_ALTERNATIVE = "sql_alternative"  # Phase 3: independent second solution for multi-query validation
+LATEST_VERSIONS = {
+    SQL_GENERATION: "v2",
+    SQL_REPAIR: "v1",
+    SQL_DESCRIPTION: "v1",
+    SQL_JUDGE: "v1",
+    SQL_ALTERNATIVE: "v1",
+}
+PARTS = {  # template files per prompt
+    SQL_GENERATION: ("system", "user"),
+    SQL_REPAIR: ("user",),
+    SQL_DESCRIPTION: ("system", "user"),
+    SQL_JUDGE: ("system", "user"),
+    SQL_ALTERNATIVE: ("user",),
+}
 
 
 @lru_cache(maxsize=1)

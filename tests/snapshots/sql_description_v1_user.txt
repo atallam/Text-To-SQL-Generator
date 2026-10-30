@@ -1,0 +1,9 @@
+## Schema
+TABLE orders (id integer, total numeric)
+
+## Query
+<sql>
+SELECT SUM(total) FROM orders
+</sql>
+
+Describe what this query computes. Fill every field; use an empty list or null when a part does not apply.

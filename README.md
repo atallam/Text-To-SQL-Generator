@@ -33,9 +33,10 @@ pytest -q
 | `text2sql/db` | Schema, seed and read-only role bootstrap |
 | `text2sql/schema` | Introspection, schema snapshot + fingerprint, glossary, relevance filter, refresh provider |
 | `text2sql/generation` | Ambiguity handler, few-shot selector, `ContextBuilder` (question -> prompt or clarification) |
-| `text2sql/prompts` | Versioned Jinja2 templates (`sql_generation.v1.*`) |
+| `text2sql/prompts` | Versioned Jinja2 templates (generation, repair, describe, judge, alternative) |
 | `text2sql/guardrails` | AST allow-list rules (G000-G008), EXPLAIN cost gate; rules in `text2sql/config/guardrails.yaml` |
 | `text2sql/execution` | Read-only sandbox executor: capped DataFrame result, timings, result hash |
+| `text2sql/validation` | Phase 3: back-translation judge, result sanity checks, multi-query validation, confidence scorer; weights in `text2sql/config/confidence.yaml` |
 | `text2sql/pipeline.py` | `Text2SQL.ask()` / `run_sql()`: the whole path, with a LangGraph repair loop |
 | `text2sql/llm` | LLM client: retry, Pydantic-validated structured output, tracing |
 | `text2sql/observability` | Structured logging and LLM call tracing |
@@ -87,6 +88,32 @@ role alone stops 61 of the 74 probed queries and the remaining 13 (catalog reads
 reason layer 2 exists. Prompt-injection scenarios use a deliberately compromised model that obeys every
 injected instruction: nothing unsafe executes.
 
+## Phase 3: confidence and hallucination detection
+
+```python
+out = t2s.ask("How much did I spend on groceries last month?")
+out.confidence                      # 0.93
+out.validation.confidence.level     # high | medium | low | cannot_answer
+out.validation.confidence.signals   # five signals, each with value, weight and a one-line reason
+out.validation.alternative          # the independent second query, shown when it disagrees
+```
+
+Five signals (initial weights from the PRD): back-translation alignment 0.30 (a blind describe-then-judge pair
+on the Haiku-class model), multi-query agreement 0.25, result sanity pass rate 0.20, schema coverage 0.15,
+first-pass syntax 0.10. Hard caps: the two approaches disagree -> at most 0.5; a guardrail warning -> at most 0.6;
+unanswerable -> "cannot answer". A signal that could not be measured drops out and the rest are renormalised.
+Details, limits and the calibration procedure are in `docs/Confidence.md`.
+
+```powershell
+python -m scripts.ask "How much did I spend on groceries last month?"   # prints the confidence breakdown
+python -m scripts.ask --no-validate "..."                               # Phase 2 behaviour, fewer model calls
+python -m evals.calibrate --offline        # no API key: deterministic signals only (not a calibration)
+python -m evals.calibrate --live           # needs ANTHROPIC_API_KEY: the run that tunes the weights
+```
+
+Status: 40 wrong and 14 correct SQL variants are committed in `evals/validation/variants.yaml`. The weights are
+still the PRD's initial ones (`calibrated: false`); the live calibration run has not been done yet.
+
 ## Evaluation data (Hugging Face)
 
 Test data comes from [`gretelai/synthetic_text_to_sql`](https://huggingface.co/datasets/gretelai/synthetic_text_to_sql).
@@ -112,6 +139,7 @@ the Phase 2 guardrail with `--guardrail text2sql.guardrails:check_sql`. The run 
 1. SQL guardrails (AST-based allow-list) - Phase 2
 2. Read-only transaction + statement timeout - **done** (`readonly_connection`)
 3. SELECT-only database role - **done** (`ensure_readonly_role`)
+4. Answer validation and confidence score - Phase 3 (weights not yet calibrated on live model output)
 
 Demo data is fully synthetic. Never point the LLM at real personal data without setting column
 sample-value policy in `source.yaml`.

@@ -1,0 +1,163 @@
+# Labeled hallucination-detection set for the WealthLens source.
+#
+# `cases`   : a question and its reference SQL (the answer a careful analyst would write).
+# `wrong`   : plausible-but-wrong SQL for that question, labeled by the way it is wrong:
+#               wrong_join | wrong_filter | wrong_aggregation | wrong_date_range
+#             The detector must flag these (recall).
+# `correct` : different-looking SQL that is RIGHT for the same question. The detector must NOT flag these
+#             (false-positive rate).
+#
+# `evals/validation_set.py` executes everything on the seeded database and records whether each wrong
+# variant actually returns different data from the reference ("detectable on this data"). Variants that
+# happen to return identical rows are reported separately and excluded from recall.
+# "As of" date for relative phrases is 2026-09-30 (the demo data's end): last month = August 2026.
+cases:
+  groceries_last_month:
+    question: How much did I spend on groceries last month?
+    reference: |
+      SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend
+      FROM transactions t JOIN categories c ON c.id = t.category_id
+      WHERE c.name = 'Groceries' AND c.kind = 'expense' AND t.txn_type = 'debit'
+        AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'
+  monthly_spend_6m:
+    question: Show my monthly spend for the last 6 months
+    reference: |
+      SELECT date_trunc('month', t.txn_date)::date AS month, SUM(t.amount) AS spend
+      FROM transactions t JOIN categories c ON c.id = t.category_id
+      WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-03-01'
+      GROUP BY 1 ORDER BY 1
+  top5_categories_year:
+    question: What are my top 5 expense categories this year?
+    reference: |
+      SELECT c.name AS category, SUM(t.amount) AS spend
+      FROM transactions t JOIN categories c ON c.id = t.category_id
+      WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01'
+      GROUP BY c.name ORDER BY spend DESC LIMIT 5
+  savings_rate_2025:
+    question: What was my savings rate in 2025?
+    reference: |
+      WITH totals AS (
+        SELECT SUM(CASE WHEN c.kind = 'income' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END) AS income,
+               SUM(CASE WHEN c.kind = 'expense' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END) AS spend
+        FROM transactions t JOIN categories c ON c.id = t.category_id
+        WHERE t.txn_date >= DATE '2025-01-01' AND t.txn_date < DATE '2026-01-01'
+      )
+      SELECT ROUND(100.0 * (income - spend) / NULLIF(income, 0), 1) AS savings_rate_pct FROM totals
+  market_value_by_type:
+    question: What is the current market value of my holdings by asset type?
+    reference: |
+      WITH latest AS (SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC)
+      SELECT a.asset_type, SUM(h.quantity * l.close) AS market_value
+      FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN latest l ON l.asset_id = h.asset_id
+      GROUP BY a.asset_type ORDER BY market_value DESC
+  over_budget_sep:
+    question: Which categories went over budget in September 2026?
+    reference: |
+      SELECT c.name AS category, b.amount AS budget, COALESCE(s.spend, 0) AS spend
+      FROM budgets b JOIN categories c ON c.id = b.category_id
+      LEFT JOIN (SELECT category_id, SUM(amount) AS spend FROM transactions
+                 WHERE txn_type = 'debit' AND txn_date >= DATE '2026-09-01' AND txn_date < DATE '2026-10-01'
+                 GROUP BY category_id) s ON s.category_id = b.category_id
+      WHERE b.month = DATE '2026-09-01' AND COALESCE(s.spend, 0) > b.amount
+      ORDER BY 3 - 2 DESC
+  goal_progress:
+    question: How far along am I on each savings goal?
+    reference: |
+      SELECT name, ROUND(100.0 * current_amount / NULLIF(target_amount, 0), 1) AS progress_pct
+      FROM goals ORDER BY target_date
+  txns_per_account:
+    question: List my accounts with the number of transactions in each
+    reference: |
+      SELECT a.name, COUNT(t.id) AS transactions
+      FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id
+      GROUP BY a.id, a.name ORDER BY a.name
+  income_last_month:
+    question: How much income did I earn last month?
+    reference: |
+      SELECT COALESCE(SUM(t.amount), 0) AS income
+      FROM transactions t JOIN categories c ON c.id = t.category_id
+      WHERE c.kind = 'income' AND t.txn_type = 'credit'
+        AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'
+  unrealized_gain_by_currency:
+    question: What is my total unrealized gain per currency?
+    reference: |
+      WITH latest AS (SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC)
+      SELECT a.currency, SUM(h.quantity * (l.close - h.avg_cost)) AS unrealized_gain
+      FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN latest l ON l.asset_id = h.asset_id
+      GROUP BY a.currency ORDER BY a.currency
+  spend_by_institution_aug:
+    question: How much did I spend at each institution in August 2026?
+    reference: |
+      SELECT a.institution, SUM(t.amount) AS spend
+      FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
+      WHERE c.kind = 'expense' AND t.txn_type = 'debit'
+        AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'
+      GROUP BY a.institution ORDER BY a.institution
+  budget_by_category_sep:
+    question: What is my budget for each category in September 2026?
+    reference: |
+      SELECT c.name AS category, b.amount AS budget
+      FROM budgets b JOIN categories c ON c.id = b.category_id
+      WHERE b.month = DATE '2026-09-01' ORDER BY c.name
+
+wrong:
+  # -- wrong JOIN ---------------------------------------------------------------------------------------
+  - {id: wj01, case: groceries_last_month, category: wrong_join, note: joins categories on the account id, sql: "SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend FROM transactions t JOIN categories c ON c.id = t.account_id WHERE c.name = 'Groceries' AND c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'"}
+  - {id: wj02, case: market_value_by_type, category: wrong_join, note: joins every historical price instead of the latest (fan-out), sql: "SELECT a.asset_type, SUM(h.quantity * p.close) AS market_value FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN asset_prices p ON p.asset_id = h.asset_id GROUP BY a.asset_type ORDER BY market_value DESC"}
+  - {id: wj03, case: over_budget_sep, category: wrong_join, note: joins spend to the budget through the account id, sql: "SELECT c.name AS category, b.amount AS budget, COALESCE(s.spend, 0) AS spend FROM budgets b JOIN categories c ON c.id = b.category_id LEFT JOIN (SELECT account_id, SUM(amount) AS spend FROM transactions WHERE txn_type = 'debit' AND txn_date >= DATE '2026-09-01' AND txn_date < DATE '2026-10-01' GROUP BY account_id) s ON s.account_id = b.category_id WHERE b.month = DATE '2026-09-01' AND COALESCE(s.spend, 0) > b.amount ORDER BY 3 - 2 DESC"}
+  - {id: wj04, case: txns_per_account, category: wrong_join, note: joins transactions on category id, sql: "SELECT a.name, COUNT(t.id) AS transactions FROM accounts a LEFT JOIN transactions t ON t.category_id = a.id GROUP BY a.id, a.name ORDER BY a.name"}
+  - {id: wj05, case: unrealized_gain_by_currency, category: wrong_join, note: all historical prices joined (fan-out), sql: "SELECT a.currency, SUM(h.quantity * (p.close - h.avg_cost)) AS unrealized_gain FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN asset_prices p ON p.asset_id = h.asset_id GROUP BY a.currency ORDER BY a.currency"}
+  - {id: wj06, case: spend_by_institution_aug, category: wrong_join, note: extra join to holdings repeats every transaction, sql: "SELECT a.institution, SUM(t.amount) AS spend FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id JOIN holdings h ON h.account_id = a.id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01' GROUP BY a.institution ORDER BY a.institution"}
+  - {id: wj07, case: spend_by_institution_aug, category: wrong_join, note: joins categories on the parent id, sql: "SELECT a.institution, SUM(t.amount) AS spend FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.parent_id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01' GROUP BY a.institution ORDER BY a.institution"}
+  - {id: wj08, case: budget_by_category_sep, category: wrong_join, note: joins every transaction of the category, repeating each budget row, sql: "SELECT c.name AS category, b.amount AS budget FROM budgets b JOIN categories c ON c.id = b.category_id JOIN transactions t ON t.category_id = b.category_id WHERE b.month = DATE '2026-09-01' ORDER BY c.name"}
+  - {id: wj09, case: top5_categories_year, category: wrong_join, note: joins category by account id, sql: "SELECT c.name AS category, SUM(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.account_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01' GROUP BY c.name ORDER BY spend DESC LIMIT 5"}
+  # -- wrong filter -------------------------------------------------------------------------------------------
+  - {id: wf01, case: groceries_last_month, category: wrong_filter, note: wrong category, sql: "SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.name = 'Dining' AND c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'"}
+  - {id: wf02, case: income_last_month, category: wrong_filter, note: counts debits instead of credits, sql: "SELECT COALESCE(SUM(t.amount), 0) AS income FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'income' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'"}
+  - {id: wf03, case: monthly_spend_6m, category: wrong_filter, note: includes transfers as spend, sql: "SELECT date_trunc('month', t.txn_date)::date AS month, SUM(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind IN ('expense', 'transfer') AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-03-01' GROUP BY 1 ORDER BY 1"}
+  - {id: wf04, case: top5_categories_year, category: wrong_filter, note: income categories instead of expense, sql: "SELECT c.name AS category, SUM(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'income' AND t.txn_type = 'credit' AND t.txn_date >= DATE '2026-01-01' GROUP BY c.name ORDER BY spend DESC LIMIT 5"}
+  - {id: wf05, case: over_budget_sep, category: wrong_filter, note: lists categories UNDER budget, sql: "SELECT c.name AS category, b.amount AS budget, COALESCE(s.spend, 0) AS spend FROM budgets b JOIN categories c ON c.id = b.category_id LEFT JOIN (SELECT category_id, SUM(amount) AS spend FROM transactions WHERE txn_type = 'debit' AND txn_date >= DATE '2026-09-01' AND txn_date < DATE '2026-10-01' GROUP BY category_id) s ON s.category_id = b.category_id WHERE b.month = DATE '2026-09-01' AND COALESCE(s.spend, 0) < b.amount ORDER BY 3 - 2 DESC"}
+  - {id: wf06, case: market_value_by_type, category: wrong_filter, note: only stocks, sql: "WITH latest AS (SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC) SELECT a.asset_type, SUM(h.quantity * l.close) AS market_value FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN latest l ON l.asset_id = h.asset_id WHERE a.asset_type = 'stock' GROUP BY a.asset_type ORDER BY market_value DESC"}
+  - {id: wf07, case: savings_rate_2025, category: wrong_filter, note: every debit counts as spend (transfers included), sql: "WITH totals AS (SELECT SUM(CASE WHEN c.kind = 'income' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END) AS income, SUM(CASE WHEN t.txn_type = 'debit' THEN t.amount ELSE 0 END) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.txn_date >= DATE '2025-01-01' AND t.txn_date < DATE '2026-01-01') SELECT ROUND(100.0 * (income - spend) / NULLIF(income, 0), 1) AS savings_rate_pct FROM totals"}
+  - {id: wf08, case: goal_progress, category: wrong_filter, note: hides goals due before 2027, sql: "SELECT name, ROUND(100.0 * current_amount / NULLIF(target_amount, 0), 1) AS progress_pct FROM goals WHERE target_date >= DATE '2027-06-01' ORDER BY target_date"}
+  - {id: wf09, case: spend_by_institution_aug, category: wrong_filter, note: income categories instead of expense, sql: "SELECT a.institution, SUM(t.amount) AS spend FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id WHERE c.kind = 'income' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01' GROUP BY a.institution ORDER BY a.institution"}
+  - {id: wf10, case: groceries_last_month, category: wrong_filter, note: credits instead of debits, sql: "SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.name = 'Groceries' AND t.txn_type = 'credit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'"}
+  # -- wrong aggregation / grouping / shape ---------------------------------------------------------------------
+  - {id: wa01, case: groceries_last_month, category: wrong_aggregation, note: counts transactions instead of summing the amount, sql: "SELECT COUNT(*) AS grocery_spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.name = 'Groceries' AND c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01'"}
+  - {id: wa02, case: monthly_spend_6m, category: wrong_aggregation, note: average transaction instead of the monthly total, sql: "SELECT date_trunc('month', t.txn_date)::date AS month, AVG(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-03-01' GROUP BY 1 ORDER BY 1"}
+  - {id: wa03, case: top5_categories_year, category: wrong_aggregation, note: ranks by number of transactions, sql: "SELECT c.name AS category, COUNT(*) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01' GROUP BY c.name ORDER BY spend DESC LIMIT 5"}
+  - {id: wa04, case: savings_rate_2025, category: wrong_aggregation, note: divides by spend instead of income, sql: "WITH totals AS (SELECT SUM(CASE WHEN c.kind = 'income' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END) AS income, SUM(CASE WHEN c.kind = 'expense' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.txn_date >= DATE '2025-01-01' AND t.txn_date < DATE '2026-01-01') SELECT ROUND(100.0 * (income - spend) / NULLIF(spend, 0), 1) AS savings_rate_pct FROM totals"}
+  - {id: wa05, case: market_value_by_type, category: wrong_aggregation, note: cost basis instead of market value, sql: "SELECT a.asset_type, SUM(h.quantity * h.avg_cost) AS market_value FROM holdings h JOIN assets a ON a.id = h.asset_id GROUP BY a.asset_type ORDER BY market_value DESC"}
+  - {id: wa06, case: goal_progress, category: wrong_aggregation, note: ratio inverted, sql: "SELECT name, ROUND(100.0 * target_amount / NULLIF(current_amount, 0), 1) AS progress_pct FROM goals ORDER BY target_date"}
+  - {id: wa07, case: txns_per_account, category: wrong_aggregation, note: sums amounts instead of counting, sql: "SELECT a.name, SUM(t.amount) AS transactions FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id GROUP BY a.id, a.name ORDER BY a.name"}
+  - {id: wa08, case: unrealized_gain_by_currency, category: wrong_aggregation, note: adds INR and USD together (no group by currency), sql: "WITH latest AS (SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date DESC) SELECT SUM(h.quantity * (l.close - h.avg_cost)) AS unrealized_gain FROM holdings h JOIN latest l ON l.asset_id = h.asset_id"}
+  - {id: wa09, case: top5_categories_year, category: wrong_aggregation, note: top 3 instead of top 5, sql: "SELECT c.name AS category, SUM(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01' GROUP BY c.name ORDER BY spend DESC LIMIT 3"}
+  - {id: wa10, case: spend_by_institution_aug, category: wrong_aggregation, note: groups by account type instead of institution, sql: "SELECT a.account_type AS institution, SUM(t.amount) AS spend FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01' GROUP BY a.account_type ORDER BY a.account_type"}
+  # -- wrong date range -----------------------------------------------------------------------------------------------
+  - {id: wd01, case: groceries_last_month, category: wrong_date_range, note: this month (September) instead of last month, sql: "SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.name = 'Groceries' AND c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-09-01' AND t.txn_date < DATE '2026-10-01'"}
+  - {id: wd02, case: groceries_last_month, category: wrong_date_range, note: whole year to date, sql: "SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.name = 'Groceries' AND c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01'"}
+  - {id: wd03, case: monthly_spend_6m, category: wrong_date_range, note: last 12 months, sql: "SELECT date_trunc('month', t.txn_date)::date AS month, SUM(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2025-09-01' GROUP BY 1 ORDER BY 1"}
+  - {id: wd04, case: top5_categories_year, category: wrong_date_range, note: all time instead of this year, sql: "SELECT c.name AS category, SUM(t.amount) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' GROUP BY c.name ORDER BY spend DESC LIMIT 5"}
+  - {id: wd05, case: savings_rate_2025, category: wrong_date_range, note: 2024 instead of 2025, sql: "WITH totals AS (SELECT SUM(CASE WHEN c.kind = 'income' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END) AS income, SUM(CASE WHEN c.kind = 'expense' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.txn_date >= DATE '2024-01-01' AND t.txn_date < DATE '2025-01-01') SELECT ROUND(100.0 * (income - spend) / NULLIF(income, 0), 1) AS savings_rate_pct FROM totals"}
+  - {id: wd06, case: savings_rate_2025, category: wrong_date_range, note: only the first half of 2025, sql: "WITH totals AS (SELECT SUM(CASE WHEN c.kind = 'income' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END) AS income, SUM(CASE WHEN c.kind = 'expense' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END) AS spend FROM transactions t JOIN categories c ON c.id = t.category_id WHERE t.txn_date >= DATE '2025-01-01' AND t.txn_date < DATE '2025-07-01') SELECT ROUND(100.0 * (income - spend) / NULLIF(income, 0), 1) AS savings_rate_pct FROM totals"}
+  - {id: wd07, case: market_value_by_type, category: wrong_date_range, note: uses the earliest price instead of the latest, sql: "WITH latest AS (SELECT DISTINCT ON (asset_id) asset_id, close FROM asset_prices ORDER BY asset_id, price_date ASC) SELECT a.asset_type, SUM(h.quantity * l.close) AS market_value FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN latest l ON l.asset_id = h.asset_id GROUP BY a.asset_type ORDER BY market_value DESC"}
+  - {id: wd08, case: over_budget_sep, category: wrong_date_range, note: compares August spend with the September budget, sql: "SELECT c.name AS category, b.amount AS budget, COALESCE(s.spend, 0) AS spend FROM budgets b JOIN categories c ON c.id = b.category_id LEFT JOIN (SELECT category_id, SUM(amount) AS spend FROM transactions WHERE txn_type = 'debit' AND txn_date >= DATE '2026-08-01' AND txn_date < DATE '2026-09-01' GROUP BY category_id) s ON s.category_id = b.category_id WHERE b.month = DATE '2026-09-01' AND COALESCE(s.spend, 0) > b.amount ORDER BY 3 - 2 DESC"}
+  - {id: wd09, case: income_last_month, category: wrong_date_range, note: last 30 days of data instead of the calendar month, sql: "SELECT COALESCE(SUM(t.amount), 0) AS income FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'income' AND t.txn_type = 'credit' AND t.txn_date > DATE '2026-09-30' - 30"}
+  - {id: wd10, case: budget_by_category_sep, category: wrong_date_range, note: a future month with no budgets, sql: "SELECT c.name AS category, b.amount AS budget FROM budgets b JOIN categories c ON c.id = b.category_id WHERE b.month = DATE '2026-10-01' ORDER BY c.name"}
+  - {id: wd11, case: spend_by_institution_aug, category: wrong_date_range, note: one day short at the end of the month, sql: "SELECT a.institution, SUM(t.amount) AS spend FROM transactions t JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-08-16' GROUP BY a.institution ORDER BY a.institution"}
+
+correct:
+  - {id: ok01, case: groceries_last_month, note: subquery on category id and BETWEEN dates, sql: "SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE name = 'Groceries' AND kind = 'expense') AND txn_type = 'debit' AND txn_date BETWEEN DATE '2026-08-01' AND DATE '2026-08-31'"}
+  - {id: ok02, case: groceries_last_month, note: conditional aggregation, sql: "SELECT SUM(CASE WHEN t.txn_type = 'debit' THEN t.amount ELSE 0 END) AS spent FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.name = 'Groceries' AND c.kind = 'expense' AND date_trunc('month', t.txn_date) = DATE '2026-08-01'"}
+  - {id: ok03, case: monthly_spend_6m, note: CTE then aggregate, sql: "WITH spend AS (SELECT t.txn_date, t.amount FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit') SELECT date_trunc('month', txn_date)::date AS m, SUM(amount) AS total FROM spend WHERE txn_date >= DATE '2026-03-01' GROUP BY 1 ORDER BY 1"}
+  - {id: ok04, case: top5_categories_year, note: window function ranking, sql: "SELECT category, spend FROM (SELECT c.name AS category, SUM(t.amount) AS spend, RANK() OVER (ORDER BY SUM(t.amount) DESC) AS r FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01' GROUP BY c.name) x WHERE r <= 5 ORDER BY spend DESC"}
+  - {id: ok05, case: savings_rate_2025, note: two scalar subqueries, sql: "SELECT ROUND(100.0 * (i - s) / NULLIF(i, 0), 1) AS rate FROM (SELECT (SELECT SUM(t.amount) FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'income' AND t.txn_type = 'credit' AND EXTRACT(year FROM t.txn_date) = 2025) AS i, (SELECT SUM(t.amount) FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND EXTRACT(year FROM t.txn_date) = 2025) AS s) z"}
+  - {id: ok06, case: market_value_by_type, note: correlated subquery for the latest price, sql: "SELECT a.asset_type, SUM(h.quantity * (SELECT p.close FROM asset_prices p WHERE p.asset_id = h.asset_id ORDER BY p.price_date DESC LIMIT 1)) AS mv FROM holdings h JOIN assets a ON a.id = h.asset_id GROUP BY a.asset_type ORDER BY mv DESC"}
+  - {id: ok07, case: over_budget_sep, note: aggregates before joining with a HAVING-style filter, sql: "WITH spend AS (SELECT category_id, SUM(amount) AS s FROM transactions WHERE txn_type = 'debit' AND txn_date >= DATE '2026-09-01' AND txn_date <= DATE '2026-09-30' GROUP BY category_id) SELECT c.name, b.amount, spend.s FROM budgets b JOIN categories c ON c.id = b.category_id JOIN spend ON spend.category_id = b.category_id WHERE b.month = DATE '2026-09-01' AND spend.s > b.amount ORDER BY spend.s - b.amount DESC"}
+  - {id: ok08, case: goal_progress, note: same ratio with a cast and a different order, sql: "SELECT name, ROUND((current_amount::numeric / NULLIF(target_amount, 0)) * 100, 1) AS pct FROM goals ORDER BY target_date, name"}
+  - {id: ok09, case: txns_per_account, note: correlated count subquery, sql: "SELECT a.name, (SELECT COUNT(*) FROM transactions t WHERE t.account_id = a.id) AS n FROM accounts a ORDER BY a.name"}
+  - {id: ok10, case: income_last_month, note: month extracted, sql: "SELECT COALESCE(SUM(t.amount), 0) AS earned FROM transactions t WHERE t.txn_type = 'credit' AND t.category_id IN (SELECT id FROM categories WHERE kind = 'income') AND EXTRACT(year FROM t.txn_date) = 2026 AND EXTRACT(month FROM t.txn_date) = 8"}
+  - {id: ok11, case: unrealized_gain_by_currency, note: window function for the latest price, sql: "WITH ranked AS (SELECT asset_id, close, ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY price_date DESC) AS rn FROM asset_prices) SELECT a.currency, SUM(h.quantity * (r.close - h.avg_cost)) AS gain FROM holdings h JOIN assets a ON a.id = h.asset_id JOIN ranked r ON r.asset_id = h.asset_id AND r.rn = 1 GROUP BY a.currency ORDER BY a.currency"}
+  - {id: ok12, case: spend_by_institution_aug, note: pre-aggregated per account then rolled up, sql: "WITH per_account AS (SELECT t.account_id, SUM(t.amount) AS s FROM transactions t JOIN categories c ON c.id = t.category_id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-08-01' AND t.txn_date < DATE '2026-09-01' GROUP BY t.account_id) SELECT a.institution, SUM(p.s) AS total FROM per_account p JOIN accounts a ON a.id = p.account_id GROUP BY a.institution ORDER BY a.institution"}
+  - {id: ok13, case: budget_by_category_sep, note: subquery form, sql: "SELECT (SELECT name FROM categories c WHERE c.id = b.category_id) AS cat, b.amount FROM budgets b WHERE b.month = DATE '2026-09-01' ORDER BY cat"}
+  - {id: ok14, case: top5_categories_year, note: ordering by position with a tiebreaker, sql: "SELECT c.name, SUM(t.amount) AS total FROM categories c JOIN transactions t ON t.category_id = c.id WHERE c.kind = 'expense' AND t.txn_type = 'debit' AND t.txn_date >= DATE '2026-01-01' AND t.txn_date <= DATE '2026-12-31' GROUP BY c.name ORDER BY 2 DESC, 1 LIMIT 5"}
