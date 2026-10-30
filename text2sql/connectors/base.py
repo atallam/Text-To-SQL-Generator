@@ -28,6 +28,12 @@ class Connector(ABC):
     def readonly_connection(self, timeout_ms: int | None = None) -> AbstractContextManager[Connection]:
         """Connection inside a read-only transaction with a statement timeout; always rolled back."""
 
+    def driver_sql(self, sql: str) -> str:
+        """Make validated SQL safe to hand to ``exec_driver_sql``. Drivers with %-style parameters (psycopg)
+        must have literal percent signs doubled, or ``LIKE '%x%'`` is mistaken for placeholders and
+        ``'a%b'`` is silently rewritten. Default: no change."""
+        return sql
+
     def health_check(self) -> bool:
         from sqlalchemy import text
 

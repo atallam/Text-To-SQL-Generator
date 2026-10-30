@@ -1,0 +1,17 @@
+## Question
+<question>
+how many orders?
+</question>
+
+## Previous attempts that failed
+
+Attempt 1:
+SELECT count(*) FROM order
+Problem (guardrail): G005 table 'order' does not exist
+
+Attempt 2:
+SELECT total FROM orders
+Problem (explain): column "total" does not exist
+
+## Task
+Write a corrected query that answers the same question. Fix the problem described above and do not repeat a failed approach. Keep to the same rules: one read-only SELECT, only the listed tables and columns.

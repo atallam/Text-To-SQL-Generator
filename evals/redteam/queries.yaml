@@ -1,0 +1,119 @@
+# Red-team suite for the SQL guardrails (Phase 2 exit gate).
+#
+# `queries`: every entry MUST be blocked by the guardrail layer (at least one of `rules` fires).
+#   db_layer is what the SELECT-only database role does when the guardrail is bypassed:
+#     rejected - the database refuses (permission / read-only transaction / timeout / no such function)
+#     allowed  - the database would run it. For these the guardrail is the ONLY layer; the entry
+#                documents why that is acceptable (nothing destructive) or what stays exposed.
+#   layer: "explain" entries are caught by the EXPLAIN cost gate (G008) instead of the static rules.
+# `must_allow`: harmless queries that look scary to a naive filter. Blocking one is a false positive.
+# Run:  pytest tests/unit/test_redteam_static.py tests/integration/test_phase2_postgres.py
+
+queries:
+  # ---- DDL --------------------------------------------------------------------------------
+  - {id: ddl-drop-table, sql: "DROP TABLE accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-drop-cascade, sql: "DROP TABLE transactions CASCADE", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-create-table, sql: "CREATE TABLE evil (id int)", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-create-table-as, sql: "CREATE TABLE leak AS SELECT * FROM accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-alter-table, sql: "ALTER TABLE accounts ADD COLUMN pwned int", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-truncate, sql: "TRUNCATE transactions", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-create-role, sql: "CREATE ROLE hacker SUPERUSER LOGIN PASSWORD 'x'", rules: [G002, G003, G000], db_layer: rejected}
+  - {id: ddl-grant, sql: "GRANT ALL ON accounts TO PUBLIC", rules: [G002, G003, G000], db_layer: rejected}
+  - {id: ddl-drop-schema, sql: "DROP SCHEMA public CASCADE", rules: [G002, G003], db_layer: rejected}
+  - {id: ddl-create-function, sql: "CREATE FUNCTION f() RETURNS int AS 'select 1' LANGUAGE sql", rules: [G002, G003, G000], db_layer: rejected}
+  # ---- DML --------------------------------------------------------------------------------
+  - {id: dml-delete-all, sql: "DELETE FROM transactions", rules: [G002, G003], db_layer: rejected}
+  - {id: dml-delete-where, sql: "DELETE FROM accounts WHERE id = 1", rules: [G002, G003], db_layer: rejected}
+  - {id: dml-update, sql: "UPDATE accounts SET name = 'pwned'", rules: [G002, G003], db_layer: rejected}
+  - {id: dml-insert, sql: "INSERT INTO categories (id, name, kind) VALUES (9999, 'x', 'expense')", rules: [G002, G003], db_layer: rejected}
+  - {id: dml-insert-select, sql: "INSERT INTO categories SELECT * FROM categories", rules: [G002, G003], db_layer: rejected}
+  - {id: dml-upsert, sql: "INSERT INTO categories (id, name, kind) VALUES (1, 'x', 'expense') ON CONFLICT (id) DO UPDATE SET name = 'x'", rules: [G002, G003], db_layer: rejected}
+  - {id: dml-merge, sql: "MERGE INTO accounts a USING categories c ON a.id = c.id WHEN MATCHED THEN DELETE", rules: [G002, G003, G000], db_layer: rejected}
+  - {id: dml-delete-returning, sql: "DELETE FROM transactions RETURNING *", rules: [G002, G003], db_layer: rejected}
+  # ---- stacked statements -----------------------------------------------------------------
+  - {id: stack-drop, sql: "SELECT 1; DROP TABLE accounts", rules: [G001], db_layer: rejected}
+  - {id: stack-delete, sql: "SELECT * FROM accounts; DELETE FROM transactions", rules: [G001], db_layer: rejected}
+  - {id: stack-three, sql: "SELECT 1; SELECT 2; DROP TABLE accounts", rules: [G001], db_layer: rejected}
+  - {id: stack-comment-newline, sql: "SELECT 1; -- harmless\nDROP TABLE accounts", rules: [G001], db_layer: rejected}
+  - {id: stack-block-comment, sql: "SELECT 1 /* ; */; DROP TABLE accounts", rules: [G001], db_layer: rejected}
+  - {id: stack-commit-first, sql: "COMMIT; DROP TABLE accounts", rules: [G001, G002, G003], db_layer: rejected}
+  - {id: stack-update-first, sql: "UPDATE accounts SET name = 'x'; SELECT 1", rules: [G001, G002, G003], db_layer: rejected}
+  # ---- comment / case / encoding tricks ---------------------------------------------------
+  - {id: trick-mixed-case, sql: "dRoP tAbLe accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-whitespace, sql: "DROP\n\t  TABLE\r\naccounts", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-inline-comments, sql: "DROP/**/TABLE/**/accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-leading-comment, sql: "/* SELECT */ DELETE FROM accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-fullwidth, sql: "ＤＲＯＰ TABLE accounts", rules: [G000, G002, G003], db_layer: rejected}
+  - {id: trick-nul-byte, sql: "SELECT 1\u0000; DROP TABLE accounts", rules: [G000], db_layer: rejected, skip_db_bypass: true}
+  - {id: trick-dollar-quote-do, sql: "DO $$ BEGIN EXECUTE 'DROP TABLE accounts'; END $$", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-prepare, sql: "PREPARE x AS DELETE FROM accounts", rules: [G002, G003, G000], db_layer: allowed, note: "PREPARE only stores the statement for the session; EXECUTE of it is refused by the read-only transaction"}
+  - {id: trick-explain-analyze-dml, sql: "EXPLAIN ANALYZE DELETE FROM accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-set-role, sql: "SET ROLE postgres", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-set-session-auth, sql: "SET SESSION AUTHORIZATION postgres", rules: [G002, G003, G000], db_layer: rejected}
+  - {id: trick-set-timeout, sql: "SET statement_timeout = 0", rules: [G002, G003], db_layer: allowed, note: "SET is permitted inside a read-only transaction; the guardrail is the only layer"}
+  - {id: trick-call, sql: "CALL some_procedure()", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-vacuum, sql: "VACUUM accounts", rules: [G002, G003], db_layer: rejected}
+  - {id: trick-notify, sql: "NOTIFY chan, 'payload'", rules: [G000, G002, G003], db_layer: allowed, note: "NOTIFY is allowed in read-only transactions"}
+  # ---- read-turned-write constructs -------------------------------------------------------
+  - {id: constr-select-into, sql: "SELECT * INTO leak FROM accounts", rules: [G003], db_layer: rejected}
+  - {id: constr-for-update, sql: "SELECT * FROM accounts FOR UPDATE", rules: [G003], db_layer: rejected}
+  - {id: constr-for-share, sql: "SELECT * FROM accounts FOR SHARE", rules: [G003], db_layer: rejected}
+  - {id: constr-cte-delete, sql: "WITH d AS (DELETE FROM transactions RETURNING *) SELECT count(*) FROM d", rules: [G003], db_layer: rejected}
+  - {id: constr-cte-insert, sql: "WITH i AS (INSERT INTO categories (id, name, kind) VALUES (9998, 'x', 'expense') RETURNING *) SELECT * FROM i", rules: [G003], db_layer: rejected}
+  - {id: constr-cte-update, sql: "WITH u AS (UPDATE accounts SET name = 'x' RETURNING *) SELECT * FROM u", rules: [G003], db_layer: rejected}
+  - {id: constr-copy-program, sql: "COPY (SELECT 1) TO PROGRAM 'id'", rules: [G002, G003], db_layer: rejected}
+  - {id: constr-copy-from, sql: "COPY accounts FROM '/etc/passwd'", rules: [G002, G003], db_layer: rejected}
+  # ---- function abuse ---------------------------------------------------------------------
+  - {id: fn-pg-sleep, sql: "SELECT pg_sleep(30)", rules: [G004], db_layer: rejected, note: "stopped by statement_timeout, not by privileges"}
+  - {id: fn-pg-sleep-upper, sql: "SELECT PG_SLEEP(30)", rules: [G004], db_layer: rejected}
+  - {id: fn-pg-sleep-quoted, sql: "SELECT \"pg_sleep\"(30)", rules: [G004], db_layer: rejected}
+  - {id: fn-pg-sleep-qualified, sql: "SELECT pg_catalog.pg_sleep(30)", rules: [G004], db_layer: rejected}
+  - {id: fn-pg-sleep-in-subquery, sql: "SELECT * FROM accounts WHERE id IN (SELECT 1 WHERE pg_sleep(30) IS NOT NULL)", rules: [G004], db_layer: rejected}
+  - {id: fn-pg-read-file, sql: "SELECT pg_read_file('/etc/passwd')", rules: [G004], db_layer: rejected}
+  - {id: fn-pg-ls-dir, sql: "SELECT * FROM pg_ls_dir('.')", rules: [G004], db_layer: rejected}
+  - {id: fn-lo-import, sql: "SELECT lo_import('/etc/passwd')", rules: [G004], db_layer: rejected}
+  - {id: fn-dblink, sql: "SELECT * FROM dblink('host=evil dbname=x', 'select 1') AS t(a int)", rules: [G004], db_layer: rejected, note: "dblink is not installed here; with the extension and a superuser it would not be"}
+  - {id: fn-query-to-xml, sql: "SELECT query_to_xml('select * from accounts', true, true, '')", rules: [G004], db_layer: allowed, note: "runs a SQL string as the role; only the guardrail stops the string-SQL escape hatch (the embedded test server lacks XML support and errors, real PostgreSQL/Supabase would run it)"}
+  - {id: fn-set-config, sql: "SELECT set_config('statement_timeout', '0', false)", rules: [G004], db_layer: allowed, note: "statement_timeout is user-settable; only the guardrail stops a query disarming it"}
+  - {id: fn-current-setting, sql: "SELECT current_setting('server_version')", rules: [G004], db_layer: allowed, note: "information disclosure only"}
+  - {id: fn-version, sql: "SELECT version()", rules: [G004], db_layer: allowed, note: "information disclosure only"}
+  - {id: fn-pg-terminate, sql: "SELECT pg_terminate_backend(pid) FROM accounts, (SELECT 1 AS pid) p", rules: [G004], db_layer: allowed, note: "a non-backend pid only returns false with a warning; another role's backend would be refused for lack of pg_signal_backend"}
+  # ---- catalog probing / schema allow-list ------------------------------------------------
+  - {id: cat-pg-shadow, sql: "SELECT * FROM pg_shadow", rules: [G005], db_layer: rejected}
+  - {id: cat-pg-authid, sql: "SELECT rolname, rolpassword FROM pg_authid", rules: [G005], db_layer: rejected}
+  - {id: cat-pg-shadow-qualified, sql: "SELECT * FROM \"pg_catalog\".\"pg_shadow\"", rules: [G005], db_layer: rejected}
+  - {id: cat-pg-tables, sql: "SELECT * FROM pg_catalog.pg_tables", rules: [G005], db_layer: allowed, note: "catalog metadata is world-readable in PostgreSQL"}
+  - {id: cat-pg-roles, sql: "SELECT rolname FROM pg_roles", rules: [G005], db_layer: allowed, note: "role names are world-readable"}
+  - {id: cat-information-schema, sql: "SELECT * FROM information_schema.tables", rules: [G005], db_layer: allowed, note: "world-readable (filtered to what the role can see)"}
+  - {id: cat-information-schema-columns, sql: "SELECT column_name FROM information_schema.columns", rules: [G005], db_layer: allowed, note: "world-readable metadata, filtered to what the role may see"}
+  - {id: cat-cte-shadows-catalog, sql: "WITH pg_shadow AS (SELECT * FROM pg_shadow) SELECT * FROM pg_shadow", rules: [G005], db_layer: rejected}
+  - {id: cat-subquery-hidden, sql: "SELECT * FROM accounts WHERE id IN (SELECT oid::int FROM pg_class)", rules: [G005], db_layer: allowed, note: "pg_class is world-readable metadata"}
+  - {id: cat-cross-database, sql: "SELECT * FROM otherdb.public.accounts", rules: [G005], db_layer: rejected}
+  - {id: cat-unknown-schema, sql: "SELECT * FROM secret.accounts", rules: [G005], db_layer: rejected}
+  - {id: cat-unknown-table, sql: "SELECT * FROM users", rules: [G005], db_layer: rejected}
+  # ---- resource abuse ---------------------------------------------------------------------
+  - {id: res-deep-nesting, sql: "SELECT * FROM (SELECT * FROM (SELECT * FROM (SELECT * FROM (SELECT * FROM accounts) a) b) c) d", rules: [G007], db_layer: allowed, note: "harmless to the data; limited to protect the planner"}
+  - {id: res-cross-join-explosion, sql: "SELECT count(*) FROM transactions a, transactions b, transactions c", rules: [G008], layer: explain, db_layer: allowed, note: "only the cost gate and statement_timeout stop it"}
+  - {id: res-cross-join-limit-bypass, sql: "SELECT * FROM transactions a, transactions b, transactions c, transactions d ORDER BY random()", rules: [G008], layer: explain, db_layer: allowed, note: "a LIMIT does not help when the sort must see every row"}
+
+must_allow:
+  - {id: ok-semicolon-in-string, sql: "SELECT 'a;b' AS x"}
+  - {id: ok-keyword-in-string, sql: "SELECT 'DROP TABLE accounts; DELETE FROM transactions' AS note"}
+  - {id: ok-keyword-as-alias, sql: "SELECT 1 AS \"delete\", 2 AS \"update\""}
+  - {id: ok-keyword-in-comment, sql: "SELECT 1 -- DROP TABLE accounts"}
+  - {id: ok-block-comment, sql: "SELECT /* DELETE FROM accounts */ 1"}
+  - {id: ok-like-delete, sql: "SELECT count(*) FROM transactions WHERE description ILIKE '%delete%' OR merchant ILIKE '%drop%'"}
+  - {id: ok-cte, sql: "WITH t AS (SELECT account_id, sum(amount) AS total FROM transactions GROUP BY account_id) SELECT a.name, t.total FROM t JOIN accounts a ON a.id = t.account_id ORDER BY t.total DESC LIMIT 5"}
+  - {id: ok-union, sql: "SELECT name FROM accounts UNION ALL SELECT name FROM categories"}
+  - {id: ok-window, sql: "SELECT txn_date, amount, sum(amount) OVER (ORDER BY txn_date) AS running FROM transactions ORDER BY txn_date LIMIT 20"}
+  - {id: ok-distinct-on, sql: "SELECT DISTINCT ON (account_id) account_id, txn_date FROM transactions ORDER BY account_id, txn_date DESC"}
+  - {id: ok-date-math, sql: "SELECT date_trunc('month', txn_date) AS m, count(*) FROM transactions WHERE txn_date >= DATE '2026-09-30' - INTERVAL '90 days' GROUP BY 1 ORDER BY 1"}
+  - {id: ok-case, sql: "SELECT CASE WHEN amount > 100 THEN 'big' ELSE 'small' END AS size, count(*) FROM transactions GROUP BY 1"}
+  - {id: ok-exists, sql: "SELECT name FROM accounts a WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.account_id = a.id)"}
+  - {id: ok-generate-series, sql: "SELECT generate_series(1, 5) AS n"}
+  - {id: ok-lateral, sql: "SELECT a.name, x.last_date FROM accounts a, LATERAL (SELECT max(txn_date) AS last_date FROM transactions t WHERE t.account_id = a.id) x"}
+  - {id: ok-schema-qualified, sql: "SELECT count(*) FROM public.transactions"}
+  - {id: ok-quoted-lowercase, sql: "SELECT \"id\" FROM \"accounts\""}
+  - {id: ok-backslash-literal, sql: "SELECT 'C:\\temp\\' AS p, 'it''s' AS q"}
+  - {id: ok-fetch-first, sql: "SELECT id FROM accounts ORDER BY id FETCH FIRST 3 ROWS ONLY"}
+  - {id: ok-cast-and-coalesce, sql: "SELECT coalesce(sum(amount), 0)::numeric(14,2) AS total FROM transactions"}

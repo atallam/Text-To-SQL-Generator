@@ -1,0 +1,87 @@
+## Database schema (PostgreSQL)
+TABLE transactions  -- One row per bank or card transaction. amount is always positive; txn_type gives the direction.
+  id integer PK
+  account_id integer NOT NULL -> accounts(id)
+  category_id integer NOT NULL -> categories(id)
+  txn_date date NOT NULL
+  amount numeric(14, 2) NOT NULL  -- Absolute amount in the transaction currency.
+  currency char(3) NOT NULL
+  txn_type text NOT NULL ['debit' | 'credit']  -- debit = money out, credit = money in.
+  merchant text
+  description text
+
+TABLE categories  -- Spending/income categories. kind separates expense, income and transfers.
+  id integer PK
+  name text NOT NULL
+  kind text NOT NULL ['income' | 'expense' | 'transfer']
+  parent_id integer -> categories(id)
+
+TABLE accounts
+  id integer PK
+  name text NOT NULL
+  institution text NOT NULL
+  account_type text NOT NULL ['bank' | 'credit_card' | 'brokerage']
+  currency char(3) NOT NULL (e.g. 'INR', 'USD')
+  opened_on date NOT NULL
+
+## Relationships
+- transactions.account_id = accounts.id
+- transactions.category_id = categories.id
+- categories.parent_id = categories.id
+
+## Business definitions
+- spend: Sum of transactions.amount where txn_type = 'debit' and categories.kind = 'expense' (join transactions.category_id to categories.id). Excludes transfers (card payments, investment transfers).
+
+## Examples
+
+Question: How much did I spend on groceries last month?
+SQL:
+SELECT COALESCE(SUM(t.amount), 0) AS grocery_spend
+FROM transactions t
+JOIN categories c ON c.id = t.category_id
+WHERE c.name = 'Groceries'
+  AND c.kind = 'expense'
+  AND t.txn_type = 'debit'
+  AND t.txn_date >= date_trunc('month', DATE '2026-09-30') - interval '1 month'
+  AND t.txn_date <  date_trunc('month', DATE '2026-09-30')
+
+Question: Show my monthly spend for the last 6 months
+SQL:
+SELECT date_trunc('month', t.txn_date)::date AS month, SUM(t.amount) AS spend
+FROM transactions t
+JOIN categories c ON c.id = t.category_id
+WHERE c.kind = 'expense'
+  AND t.txn_type = 'debit'
+  AND t.txn_date >= date_trunc('month', DATE '2026-09-30') - interval '6 months'
+GROUP BY 1
+ORDER BY 1
+
+Question: What are my top 5 expense categories this year?
+SQL:
+SELECT c.name AS category, SUM(t.amount) AS spend
+FROM transactions t
+JOIN categories c ON c.id = t.category_id
+WHERE c.kind = 'expense'
+  AND t.txn_type = 'debit'
+  AND t.txn_date >= date_trunc('year', DATE '2026-09-30')
+GROUP BY c.name
+ORDER BY spend DESC
+LIMIT 5
+
+Question: What was my savings rate in 2025?
+SQL:
+WITH totals AS (
+  SELECT
+    SUM(CASE WHEN c.kind = 'income'  AND t.txn_type = 'credit' THEN t.amount ELSE 0 END) AS income,
+    SUM(CASE WHEN c.kind = 'expense' AND t.txn_type = 'debit'  THEN t.amount ELSE 0 END) AS spend
+  FROM transactions t
+  JOIN categories c ON c.id = t.category_id
+  WHERE t.txn_date >= DATE '2025-01-01' AND t.txn_date < DATE '2026-01-01'
+)
+SELECT income, spend, ROUND(100.0 * (income - spend) / NULLIF(income, 0), 1) AS savings_rate_pct
+FROM totals
+
+## Question
+<question>
+How much did I spend on groceries last month?
+</question>

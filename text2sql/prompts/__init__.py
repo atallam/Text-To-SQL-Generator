@@ -12,7 +12,9 @@ from functools import lru_cache
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 SQL_GENERATION = "sql_generation"
-LATEST_VERSIONS = {SQL_GENERATION: "v1"}
+SQL_REPAIR = "sql_repair"
+LATEST_VERSIONS = {SQL_GENERATION: "v2", SQL_REPAIR: "v1"}
+PARTS = {SQL_GENERATION: ("system", "user"), SQL_REPAIR: ("user",)}  # template files per prompt
 
 
 @lru_cache(maxsize=1)

@@ -93,7 +93,7 @@ def test_input_validation(builder):
     assert (
         builder.prepare("  How   many\naccounts  do I   have? ")
         .prompt.user.rstrip()
-        .endswith("How many accounts do I have?")
+        .endswith("How many accounts do I have?\n</question>")  # v2 delimits the question
     )
 
 

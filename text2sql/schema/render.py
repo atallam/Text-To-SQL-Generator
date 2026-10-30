@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from text2sql.schema.model import Column, SchemaSnapshot, Table
 
+MAX_COMMENT_CHARS = 240
+
 
 def _one_line(text: str | None) -> str:
-    return " ".join((text or "").split())
+    """Comments come from the database, so they are untrusted: no control characters, no line breaks
+    (a comment cannot start a fake prompt section), bounded length."""
+    cleaned = "".join(ch if ch >= " " or ch in "\t\n\r" else " " for ch in (text or ""))
+    cleaned = " ".join(cleaned.split())
+    return cleaned if len(cleaned) <= MAX_COMMENT_CHARS else cleaned[: MAX_COMMENT_CHARS - 1] + "…"
 
 
 def _quote_values(values: list[str]) -> str:

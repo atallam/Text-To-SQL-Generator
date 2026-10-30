@@ -90,3 +90,33 @@ def assert_snapshot(name: str, text: str) -> None:
         f"prompt snapshot {path.name} changed. If intended, bump the prompt version or regenerate with "
         "UPDATE_SNAPSHOTS=1 and review the diff."
     )
+
+
+# -- Phase 2 helpers ---------------------------------------------------------------------------
+class ScriptedLLM:
+    """Stands in for LLMClient. ``script`` items are consumed one per call: a GeneratedSQL, an Exception to
+    raise, or a callable ``(agent, system, user) -> GeneratedSQL`` (lets a test simulate a *compromised*
+    model that reacts to what is in the prompt). The last item repeats once the script runs out."""
+
+    def __init__(self, *script):
+        self.script = list(script)
+        self.calls: list[dict] = []
+
+    def complete_structured(self, *, agent_name, system, user, response_model, model=None, max_tokens=None):
+        from text2sql.llm.client import StructuredResult, Usage
+
+        self.calls.append({"agent": agent_name, "system": system, "user": user})
+        item = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
+        if callable(item) and not isinstance(item, Exception):
+            item = item(agent_name, system, user)
+        if isinstance(item, Exception):
+            raise item
+        return StructuredResult(parsed=item, usage=Usage(100, 20), latency_ms=5, model="scripted", attempts=1)
+
+
+def gen(sql: str = "SELECT 1", **kw):
+    from text2sql.generation.generator import GeneratedSQL
+
+    kw.setdefault("explanation", "test query")
+    kw.setdefault("self_confidence", 0.9)
+    return GeneratedSQL(sql=sql, **kw)

@@ -1,0 +1,66 @@
+# SQL guardrail rules. Every rule has a stable ID (logged on every block). A source can override any
+# value in sources/<name>/guardrails.yaml (set `guardrails:` in its source.yaml).
+#
+# G000-G003 are the safety core: parse failures, multiple statements, non-SELECT statements and
+# forbidden constructs (SELECT INTO, FOR UPDATE, data-modifying CTEs, COPY, ...) always block.
+
+dialect: postgres            # sqlglot dialect used to parse and regenerate the SQL
+max_sql_chars: 20000
+statement_timeout_ms: 10000  # enforced by the connector (SET LOCAL); recorded in the audit trail
+
+# G004: functions that read files, sleep, run SQL from strings, reach other servers or administer the
+# server. Patterns are case-insensitive fnmatch against the bare function name.
+functions:
+  mode: block
+  repairable: false
+  deny:
+    - "pg_*"                 # pg_sleep, pg_read_file, pg_ls_dir, pg_terminate_backend, pg_reload_conf, ...
+    - "lo_*"                 # large objects: lo_import, lo_export, ...
+    - "dblink*"              # dblink, dblink_exec, dblink_connect, ...
+    - "set_config"
+    - "current_setting"
+    - "version"
+    - "current_version"      # sqlglot parses version() into this node
+    - "query_to_xml*"        # run an arbitrary SQL string
+    - "table_to_xml*"
+    - "cursor_to_xml*"
+    - "schema_to_xml*"
+    - "database_to_xml*"
+    - "xpath*"
+    - "inet_*_addr"
+    - "inet_*_port"
+    - "txid_*"
+    - "pgp_*"
+    - "crypt"
+    - "gen_salt"
+    - "copy_*"
+    - "ts_debug"
+  allow: []                  # exceptions to the patterns above, e.g. ["pg_typeof"]
+
+# G005: only tables registered in the introspected schema. Unknown tables are repairable (the model
+# hallucinated a name); catalog access is not.
+tables:
+  mode: block
+  repairable: true
+  allowed_schemas: []        # empty = the source's own schema only
+  allow_catalog: false       # pg_catalog / information_schema / pg_* relations
+  extra_tables: []
+
+# G006: inject a LIMIT, or lower one that is too high. mode: rewrite | reject | off
+row_limit:
+  mode: rewrite
+  max_rows: 1000             # overridden by the source's max_rows
+
+# G007: nesting of SELECT inside SELECT (CTE bodies count as one level).
+subquery_depth:
+  mode: block
+  repairable: true
+  max_depth: 3
+
+# G008: planner-estimated cost / rows from EXPLAIN (no execution). Estimates are coarse; the
+# statement timeout and the row cap are the hard limits behind this gate.
+explain:
+  mode: block
+  repairable: true
+  max_total_cost: 1000000
+  max_plan_rows: 5000000

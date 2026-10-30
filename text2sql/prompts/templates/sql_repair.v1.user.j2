@@ -1,0 +1,12 @@
+{{ original_prompt }}
+
+## Previous attempts that failed
+{% for a in attempts %}
+
+Attempt {{ a.n }}:
+{{ a.sql | trim }}
+Problem ({{ a.stage }}): {{ a.error }}
+{% endfor %}
+
+## Task
+Write a corrected query that answers the same question. Fix the problem described above and do not repeat a failed approach. Keep to the same rules: one read-only SELECT, only the listed tables and columns.

@@ -3,7 +3,7 @@
 Natural-language questions to SQL, with layered guardrails, hallucination detection and a decomposed
 confidence score. Production-tier build; see `PRD.md` for scope, phases and decisions.
 
-**Status:** Phase 0 (foundation) and Phase 1 (schema-aware prompt engine) complete. Eval numbers will lead this README after Phase 6.
+**Status:** Phases 0-2 complete: foundation, schema-aware prompts, SQL generation with guardrails. Eval numbers will lead this README after Phase 6.
 
 ## Quick start (PowerShell)
 
@@ -34,6 +34,9 @@ pytest -q
 | `text2sql/schema` | Introspection, schema snapshot + fingerprint, glossary, relevance filter, refresh provider |
 | `text2sql/generation` | Ambiguity handler, few-shot selector, `ContextBuilder` (question -> prompt or clarification) |
 | `text2sql/prompts` | Versioned Jinja2 templates (`sql_generation.v1.*`) |
+| `text2sql/guardrails` | AST allow-list rules (G000-G008), EXPLAIN cost gate; rules in `text2sql/config/guardrails.yaml` |
+| `text2sql/execution` | Read-only sandbox executor: capped DataFrame result, timings, result hash |
+| `text2sql/pipeline.py` | `Text2SQL.ask()` / `run_sql()`: the whole path, with a LangGraph repair loop |
 | `text2sql/llm` | LLM client: retry, Pydantic-validated structured output, tracing |
 | `text2sql/observability` | Structured logging and LLM call tracing |
 | `sources/<name>` | Per-source bundle: `source.yaml`, schema, glossary |
@@ -56,6 +59,33 @@ Measured on the 20-question WealthLens seed set (`evals/golden/wealthlens_seed.y
 recall, lexical 19/20; ambiguity handling 12/12. The seed set is small and author-written, so treat it as a
 smoke gate, not independent evidence. Sample values are never sent to the LLM unless a column is allow-listed
 in `source.yaml`.
+
+## Phase 2: generation and safety
+
+```python
+from text2sql.pipeline import Text2SQL
+
+t2s = Text2SQL.from_source("wealthlens")
+out = t2s.ask("How much did I spend on groceries last month?")
+out.status        # success | needs_clarification | unanswerable | blocked | failed
+out.sql           # the guardrail-approved SQL that ran
+out.execution.to_dataframe()
+```
+
+```powershell
+python -m scripts.ask "How much did I spend on groceries last month?"
+python -m scripts.ask --sql "SELECT name FROM accounts"      # your own SQL, same guardrails
+python -m evals.redteam                                       # 77 dangerous + 20 harmless queries, offline
+python -m evals.redteam --live                                # + EXPLAIN gate and database-role bypass probe (dev DB only)
+python -m evals.run_evals --guardrail text2sql.guardrails:check_sql
+```
+
+Five layers: input hygiene, AST rules, EXPLAIN cost gate, `READ ONLY` transaction with timeout, SELECT-only
+role. Design, rule table and known limits are in `docs/Guardrails.md`. Results on the red-team suite: 77/77
+blocked by the guardrail layer, 20/20 harmless look-alikes allowed; with the guardrail bypassed the database
+role alone stops 61 of the 74 probed queries and the remaining 13 (catalog reads, `set_config`, ...) are the
+reason layer 2 exists. Prompt-injection scenarios use a deliberately compromised model that obeys every
+injected instruction: nothing unsafe executes.
 
 ## Evaluation data (Hugging Face)
 

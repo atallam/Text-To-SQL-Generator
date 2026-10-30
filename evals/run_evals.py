@@ -224,8 +224,7 @@ def render_markdown(summary: dict[str, Any], results: list[CaseResult], meta: di
 
     failures = [r for r in results if not r.passed][:15]
     if failures:
-        lines += ["", "## First failures", ""]
-        lines += ["| Case | Outcome | Question | SQL / error |", "|---|---|---|---|"]
+        lines += ["", "## First failures", "", "| Case | Outcome | Question | SQL / error |", "|---|---|---|---|"]  # noqa: E501
         for r in failures:
             detail = (r.error or r.sql or "").replace("|", "\\|").replace("\n", " ")[:120]
             lines.append(f"| {r.id} | {r.outcome} | {r.question[:80].replace('|', ' ')} | {detail} |")

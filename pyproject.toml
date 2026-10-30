@@ -11,12 +11,15 @@ requires-python = ">=3.11"
 dependencies = [
   "anthropic>=0.40",
   "jinja2>=3.1",
+  "langgraph>=0.2",
   "numpy>=1.26",
+  "pandas>=2.0",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
   "sqlalchemy>=2.0",
   "psycopg[binary]>=3.1",
   "pyyaml>=6.0",
+  "sqlglot>=25.0",
   "structlog>=24.1",
   "tenacity>=8.2",
 ]
@@ -30,7 +33,7 @@ embeddings = ["sentence-transformers>=3.0"]  # local BAAI/bge-small-en-v1.5; pul
 include = ["text2sql*"]
 
 [tool.setuptools.package-data]
-text2sql = ["prompts/templates/*.j2"]
+text2sql = ["prompts/templates/*.j2", "config/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

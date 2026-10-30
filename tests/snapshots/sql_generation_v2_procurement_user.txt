@@ -1,0 +1,39 @@
+## Database schema (PostgreSQL)
+TABLE purchase_orders  -- Purchase orders placed with suppliers.
+  id integer PK
+  supplier_id integer NOT NULL -> suppliers(id)
+  amount numeric(12, 2) NOT NULL  -- Order value in USD
+  promised_on date
+
+TABLE suppliers  -- One row per approved supplier.
+  id integer PK
+  name text NOT NULL
+  tier text NOT NULL ['gold' | 'silver' | 'bronze']
+  country char(2) (e.g. 'DE', 'IN', 'US')  -- ISO country code
+
+## Relationships
+- purchase_orders.supplier_id = suppliers.id
+
+## Business definitions
+- late: delivered_on is after purchase_orders.promised_on. Ignore orders without a promised date.
+
+## User clarifications
+- "revenue" means: Net revenue
+
+## Examples
+
+Question: Total order value per supplier
+SQL:
+SELECT s.name, SUM(o.amount)
+FROM purchase_orders o
+JOIN suppliers s ON s.id = o.supplier_id
+GROUP BY s.name
+
+Question: How many gold suppliers are there?
+SQL:
+SELECT COUNT(*) FROM suppliers WHERE tier = 'gold'
+
+## Question
+<question>
+Which late orders are there per supplier, using net revenue?
+</question>

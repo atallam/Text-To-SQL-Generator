@@ -14,6 +14,7 @@ offline.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Literal
 
@@ -37,6 +38,7 @@ from text2sql.schema.render import render_relationships, render_schema
 log = get_logger("context")
 
 MAX_QUESTION_CHARS = 2000
+_TAG_RE = re.compile(r"</?\s*question\s*>", re.IGNORECASE)
 _DIALECT_NAMES = {"postgresql": "PostgreSQL", "sqlite": "SQLite", "mysql": "MySQL", "duckdb": "DuckDB"}
 
 
@@ -154,7 +156,8 @@ class ContextBuilder:
                 {"term": name.replace("_", " "), "label": interp.label} for name, interp in resolved.items()
             ],
             "examples": [{"question": e.question, "sql": e.sql} for e in shots],
-            "question": question,
+            # v2 wraps the question in <question> tags; the question must not be able to close them.
+            "question": _TAG_RE.sub("[tag removed]", question),
         }
         context["today"] = self.source.today_sql
         system_ctx = {k: context[k] for k in ("dialect", "source_name", "conventions", "today")}

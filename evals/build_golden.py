@@ -30,9 +30,7 @@ ANSWERABLE_TASKS = {"analytics and reporting", "data retrieval"}
 UNSAFE_TASKS = {"data manipulation", "data definition"}
 
 _READ_RE = re.compile(r"^\s*\(*\s*(select|with)\b", re.IGNORECASE)
-_WRITE_RE = re.compile(
-    r"^\s*(insert|update|delete|create|alter|drop|truncate|replace|merge)\b", re.IGNORECASE
-)
+_WRITE_RE = re.compile(r"^\s*(insert|update|delete|create|alter|drop|truncate|replace|merge)\b", re.IGNORECASE)  # noqa: E501
 _NONDETERMINISTIC_RE = re.compile(
     r"\b(random|now|current_date|current_time|current_timestamp|localtime)\b|date\s*\(\s*'now'", re.IGNORECASE
 )

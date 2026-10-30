@@ -1,0 +1,39 @@
+## Database schema ({{ dialect }})
+{{ schema_text }}
+{% if relationships %}
+
+## Relationships
+{% for r in relationships %}
+- {{ r }}
+{% endfor %}
+{% endif %}
+{% if definitions %}
+
+## Business definitions
+{% for d in definitions %}
+- {{ d.name }}: {{ d.definition }}{% if d.notes %} {{ d.notes }}{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if resolved %}
+
+## User clarifications
+{% for r in resolved %}
+- "{{ r.term }}" means: {{ r.label }}
+{% endfor %}
+{% endif %}
+{% if examples %}
+
+## Examples
+{% for ex in examples %}
+
+Question: {{ ex.question }}
+SQL:
+{{ ex.sql | trim }}
+{% endfor %}
+{% endif %}
+
+## Question
+<question>
+{{ question }}
+</question>

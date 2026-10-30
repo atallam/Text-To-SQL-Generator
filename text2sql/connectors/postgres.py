@@ -30,6 +30,9 @@ class PostgresConnector(Connector):
             )
         return self._engine
 
+    def driver_sql(self, sql: str) -> str:
+        return sql.replace("%", "%%")
+
     @contextmanager
     def readonly_connection(self, timeout_ms: int | None = None) -> Iterator[Connection]:
         timeout = int(timeout_ms if timeout_ms is not None else self.config.statement_timeout_ms)
@@ -39,6 +42,9 @@ class PostgresConnector(Connector):
             # (layer 1 = SQL guardrails, layer 3 = SELECT-only DB role).
             conn.exec_driver_sql("SET TRANSACTION READ ONLY")
             conn.exec_driver_sql(f"SET LOCAL statement_timeout = {timeout}")
+            # Backslashes in string literals are literal characters (the default; pinned so a database
+            # with the legacy setting cannot reinterpret the SQL we validated).
+            conn.exec_driver_sql("SET LOCAL standard_conforming_strings = on")
             yield conn
         finally:
             conn.rollback()
