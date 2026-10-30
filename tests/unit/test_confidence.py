@@ -141,3 +141,12 @@ def test_schema_coverage_full_and_partial():
 
 def test_schema_coverage_with_nothing_to_compare_is_neutral():
     assert schema_coverage_signal(sql_tables=[], sql_columns=[], context_tables=[], generated=None)[0] == 1.0
+
+
+def test_misalignment_caps_even_when_every_other_signal_is_perfect():
+    sig = {**ALL_ONE, "backtranslation": (0.5, "wrong filter")}
+    plain = scorer().score(sig)
+    assert plain.score > 0.8  # the weighted sum alone would call this high
+    capped = scorer().score(sig, misaligned=True)
+    assert capped.score == 0.6 and capped.level == "medium" and "judge" in capped.caps_applied[0]
+    assert scorer().score(ALL_ONE, misaligned=False).score == 1.0

@@ -15,6 +15,9 @@ weights:               # must be positive; renormalised over the signals that ar
 caps:
   disagreement: 0.5       # the two approaches returned different data
   guardrail_warning: 0.6  # a guardrail warning fired (see warning_ignore_rules)
+  misalignment: 0.6       # the blind judge says the SQL does not match the question (alignment < flag_below).
+                          # Added after the first live run: without it a clear mismatch still scored 0.8+
+                          # because back-translation is only 0.30 of the weighted sum.
 
 # G006 (a LIMIT was added) fires on most queries, so it only counts as a warning when the added
 # limit actually cut the result short.

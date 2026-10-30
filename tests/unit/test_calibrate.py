@@ -70,11 +70,14 @@ def test_rescore_matches_the_scorer_including_caps_and_missing_signals():
         dict(multiquery=0.0),
         dict(backtranslation=None),
         dict(multiquery=None, syntax=0.3),
+        dict(backtranslation=0.5),
     ]
     for sig in cases:
         rec = _rec("correct", **sig)
         want = scorer.score(
-            {k: (v, "") for k, v in rec["signals"].items()}, disagreement=sig.get("multiquery") == 0.0
+            {k: (v, "") for k, v in rec["signals"].items()},
+            disagreement=sig.get("multiquery") == 0.0,
+            misaligned=(sig.get("backtranslation") or 1.0) < CFG.backtranslation.flag_below,
         )
         assert rescore([rec], CFG.weights, CFG)[0] == pytest.approx(want.score, abs=1e-4), sig
     capped = _rec("correct") | {"warning_cap": True}

@@ -111,6 +111,11 @@ def rescore(records: list[dict], weights: dict[str, float], cfg: ValidationConfi
     mq = names.index("multiquery")
     disagree = np.array([r["signals"].get("multiquery") == 0.0 for r in records]) & ~np.isnan(values[:, mq])
     scores = np.where(disagree, np.minimum(scores, cfg.caps.disagreement), scores)
+    bt = names.index("backtranslation")
+    misaligned = ~np.isnan(values[:, bt]) & (
+        np.nan_to_num(values[:, bt], nan=1.0) < cfg.backtranslation.flag_below
+    )
+    scores = np.where(misaligned, np.minimum(scores, cfg.caps.misalignment), scores)
     warned = np.array([bool(r.get("warning_cap")) for r in records])
     scores = np.where(warned, np.minimum(scores, cfg.caps.guardrail_warning), scores)
     return np.round(scores, 4)

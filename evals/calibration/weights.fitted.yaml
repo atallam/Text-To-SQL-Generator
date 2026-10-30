@@ -1,0 +1,7 @@
+calibrated: false
+weights:
+  backtranslation: 0.1
+  multiquery: 0.5
+  sanity: 0.2
+  schema_coverage: 0.1
+  syntax: 0.1

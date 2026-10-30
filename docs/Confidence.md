@@ -30,6 +30,7 @@ drops out and the others are renormalised, so a missing signal never counts as a
 **Hard caps** (applied after the weighted sum):
 
 * The two approaches returned different data: at most **0.5**.
+* The blind judge says the SQL does not match the question (alignment below 0.75): at most **0.6**. Added after the first live run, where five clearly wrong queries still scored 0.73 to 0.84 because back-translation is only 0.30 of the weighted sum.
 * A guardrail warning fired: at most **0.6**. G006 ("a LIMIT was added") is ignored unless that limit actually cut the result short, because it fires on most queries.
 * The question is unanswerable: score 0, level `cannot_answer`, nothing else is consulted (and no validation model calls are made).
 

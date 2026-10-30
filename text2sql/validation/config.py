@@ -18,6 +18,7 @@ SIGNALS = ("backtranslation", "multiquery", "sanity", "schema_coverage", "syntax
 class Caps(BaseModel):
     disagreement: float = 0.5
     guardrail_warning: float = 0.6
+    misalignment: float = 0.6
 
 
 class Levels(BaseModel):

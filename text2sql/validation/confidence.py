@@ -4,7 +4,8 @@ The model's own ``self_confidence`` is NOT an input: self-reported confidence is
 five signals are measured from outside the generation step.
 
     score = sum(weight_i * value_i) / sum(weight_i)      over the signals that are available
-    then hard caps:  approaches disagree -> <= 0.5     guardrail warning -> <= 0.6
+    then hard caps:  approaches disagree -> <= 0.5     judge says misaligned -> <= 0.6
+                     guardrail warning -> <= 0.6
     "cannot answer" short-circuits: score 0, no other signal is consulted
 
 A signal that could not be measured (multi-query skipped for a simple question, judge call failed) drops
@@ -110,6 +111,7 @@ class ConfidenceScorer:
         signals: dict[str, tuple[float | None, str]],
         *,
         disagreement: bool = False,
+        misaligned: bool = False,
         warnings: list[str] | None = None,
         truncated: bool = False,
     ) -> ConfidenceReport:
@@ -141,6 +143,9 @@ class ConfidenceScorer:
         if disagreement and score > self.cfg.caps.disagreement:
             score = self.cfg.caps.disagreement
             caps.append(f"two independent approaches returned different data (capped at {score})")
+        if misaligned and score > self.cfg.caps.misalignment:
+            score = self.cfg.caps.misalignment
+            caps.append(f"the blind judge found the SQL does not match the question (capped at {score})")
         relevant = [w for w in (warnings or []) if not self._ignored(w, truncated)]
         if relevant and score > self.cfg.caps.guardrail_warning:
             score = self.cfg.caps.guardrail_warning

@@ -175,6 +175,7 @@ class Validator:
         confidence = self.scorer.score(
             signals,
             disagreement=alt is not None and alt.status == "disagree",
+            misaligned=bt is not None and bt.alignment < self.cfg.backtranslation.flag_below,
             warnings=list(decision.warnings),
             truncated=execution.truncated,
         )

@@ -78,6 +78,12 @@ def test_misaligned_description_lowers_the_score():
     assert bad < good - 0.1
 
 
+def test_a_misaligned_description_is_capped_not_averaged_away():
+    rep = build(bt_llm(BAD)).validate("q", PROMPT, loop_result(), SCHEMA)
+    assert rep.back_translation.alignment < 0.75 and rep.confidence.score <= 0.6
+    assert rep.confidence.level != "high"
+
+
 def test_repairs_lower_the_syntax_signal():
     one = build(bt_llm()).validate("q", PROMPT, loop_result(1), SCHEMA).confidence.score
     three = build(bt_llm()).validate("q", PROMPT, loop_result(3), SCHEMA).confidence.score

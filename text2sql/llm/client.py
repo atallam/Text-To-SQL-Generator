@@ -3,6 +3,7 @@
 Rules (project standard): retry+backoff on transient errors, Pydantic validation of every output,
 token/latency tracing on every call, no business logic in here.
 """
+
 from __future__ import annotations
 
 import time
@@ -24,6 +25,7 @@ from text2sql.observability.tracing import LLMCallRecord, StructlogTracer, Trace
 T = TypeVar("T", bound=BaseModel)
 
 _TOOL_NAME = "respond"
+_AUTO_SUFFIX = f"Reply only by calling the `{_TOOL_NAME}` tool exactly once. Do not answer in plain text."
 
 
 class LLMOutputError(RuntimeError):
@@ -74,6 +76,7 @@ class LLMClient:
                 timeout=self.settings.llm_timeout_s,
                 max_retries=0,  # retries are handled (and traced) here, not inside the SDK
             )
+        self._no_forced_tool: set[str] = set()  # models that rejected tool_choice=tool
 
     # -- public ---------------------------------------------------------------------------
     def complete_structured(
@@ -152,17 +155,25 @@ class LLMClient:
             wait=wait_exponential(multiplier=self.settings.llm_retry_wait_s, max=30),
             reraise=True,
         )
-        def _do():
+        def _do(forced: bool):
             return self._sdk.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=system,
+                system=system if forced else f"{system}\n\n{_AUTO_SUFFIX}",
                 messages=messages,
                 tools=[{"name": _TOOL_NAME, "description": description, "input_schema": schema}],
-                tool_choice={"type": "tool", "name": _TOOL_NAME},
+                tool_choice={"type": "tool", "name": _TOOL_NAME} if forced else {"type": "auto"},
             )
 
-        return _do()
+        if model not in self._no_forced_tool:
+            try:
+                return _do(True)
+            except anthropic.BadRequestError as exc:
+                if "tool_choice" not in str(exc):
+                    raise
+                # Some models (e.g. with adaptive thinking) refuse forced tool use: remember and use auto.
+                self._no_forced_tool.add(model)
+        return _do(False)
 
     @staticmethod
     def _extract_tool_input(resp: Any) -> dict:
