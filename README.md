@@ -3,7 +3,7 @@
 Natural-language questions to SQL, with layered guardrails, hallucination detection and a decomposed
 confidence score. Production-tier build; see `PRD.md` for scope, phases and decisions.
 
-**Status:** Phases 0-2 complete: foundation, schema-aware prompts, SQL generation with guardrails. Eval numbers will lead this README after Phase 6.
+**Status:** Phases 0-3 complete (foundation, schema-aware prompts, guardrails, validation and confidence); Phase 4 (API + Streamlit UI) added, pending a first end-to-end run on your machine. Eval numbers will lead this README after Phase 6.
 
 ## Quick start (PowerShell)
 
@@ -40,7 +40,10 @@ pytest -q
 | `text2sql/pipeline.py` | `Text2SQL.ask()` / `run_sql()`: the whole path, with a LangGraph repair loop |
 | `text2sql/llm` | LLM client: retry, Pydantic-validated structured output, tracing |
 | `text2sql/observability` | Structured logging and LLM call tracing |
-| `sources/<name>` | Per-source bundle: `source.yaml`, schema, glossary |
+| `api` | Phase 4: FastAPI service (`/v1/query`, `/v1/query/run-sql`, `/v1/schema`, `/v1/history`, `/v1/feedback`, `/healthz`) |
+| `app` | Phase 4: Streamlit UI (confidence badge, editable SQL, clarification cards, history, feedback) |
+| `docker` | One image for API + UI; see `docker-compose.yml` |
+| `sources/<name>` | Per-source bundle: `source.yaml`, schema, glossary, examples |
 | `scripts` | Seeding and utilities |
 
 ## Phase 1: schema-aware prompts
@@ -113,6 +116,26 @@ python -m evals.calibrate --live           # needs ANTHROPIC_API_KEY: the run th
 
 Status: 40 wrong and 14 correct SQL variants are committed in `evals/validation/variants.yaml`. The weights are
 still the PRD's initial ones (`calibrated: false`); the live calibration run has not been done yet.
+
+## Phase 4: API and UI
+
+Setup once (PowerShell), then run the two processes in separate terminals:
+
+```powershell
+pip install -e ".[dev,api,ui]"
+# .env needs ANTHROPIC_API_KEY, API_KEYS=<random string>, API_KEY=<the same string>
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # generate a key
+
+uvicorn api.main:app --reload --port 8000        # API docs: http://localhost:8000/docs
+streamlit run app/streamlit_app.py               # UI:       http://localhost:8501
+```
+
+Or everything in containers (Postgres, seed, API, UI): `docker compose up --build`.
+
+- **Auth and limits:** `X-API-Key` header, per-key rate limit (`API_RATE_LIMIT_PER_MINUTE`), request size limit, CORS allow-list. With no `API_KEYS` set the API refuses requests instead of running open.
+- **Edited SQL:** `POST /v1/query/run-sql` re-runs SQL a person changed through the same guardrails, sandbox and read-only role. It is not confidence-scored.
+- **Feedback flywheel with a human gate:** thumbs-up becomes a *candidate few-shot example*, thumbs-down a *candidate eval case*. Nothing changes answers until an admin (`API_ADMIN_KEYS`) approves it via `/v1/feedback/{id}/review`. Approved examples are re-checked by the guardrails and written to `sources/<name>/examples.approved.yaml`; approved eval cases go to `evals/feedback/<name>.jsonl` for you to review and move into the golden set.
+- **History** lives in `data/app.db` (SQLite, git-ignored), per session.
 
 ## Evaluation data (Hugging Face)
 

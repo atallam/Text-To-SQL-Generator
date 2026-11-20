@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Owner** | Avinash Tallam |
-| **Status** | v0.3 - Phase 0 complete (see section 9, Phase 0 notes); Phase 1 next |
+| **Status** | v0.4 - Phases 0-3 built; Phase 4 (API + Streamlit UI) built, awaiting first end-to-end run |
 | **Tier** | Production |
 | **Repo name** | `Text-To-SQL-Generator` (Python package: `text2sql`) |
 | **Date** | 2026-10-25 (v0.2) |
