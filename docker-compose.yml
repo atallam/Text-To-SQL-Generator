@@ -1,3 +1,24 @@
+# docker compose up --build
+#   API  -> http://localhost:8000/docs      UI -> http://localhost:8501
+# Needs in .env:  ANTHROPIC_API_KEY, API_KEYS (server) and API_KEY (UI, one of API_KEYS),
+#                 WEALTHLENS_READONLY_PASSWORD, POSTGRES_PASSWORD (optional, defaults to postgres)
+x-app-env: &app-env
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  LLM_MODEL_GENERATION: ${LLM_MODEL_GENERATION:-claude-sonnet-5-5}
+  LLM_MODEL_JUDGE: ${LLM_MODEL_JUDGE:-claude-haiku-5-5}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-lexical}
+  LOG_JSON: "true"
+  # Inside the compose network the database host is "db", not localhost.
+  WEALTHLENS_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/wealthlens
+  WEALTHLENS_READONLY_URL: postgresql+psycopg://t2s_readonly:${WEALTHLENS_READONLY_PASSWORD:?Set WEALTHLENS_READONLY_PASSWORD in .env}@db:5432/wealthlens
+  WEALTHLENS_READONLY_PASSWORD: ${WEALTHLENS_READONLY_PASSWORD}
+
+x-app-build: &app-build
+  context: .
+  dockerfile: docker/Dockerfile
+  args:
+    EXTRAS: ${EXTRAS:-api,ui}
+
 services:
   db:
     image: postgres:16
@@ -14,5 +35,51 @@ services:
       timeout: 3s
       retries: 10
 
+  # One-shot: creates the schema, synthetic data and the SELECT-only role. Safe to re-run.
+  seed:
+    build: *app-build
+    command: ["python", "-m", "scripts.seed_wealthlens"]
+    environment: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: *app-build
+    environment:
+      <<: *app-env
+      API_KEYS: ${API_KEYS:?Set API_KEYS in .env (comma-separated random strings)}
+      API_ADMIN_KEYS: ${API_ADMIN_KEYS:-}
+      API_CORS_ORIGINS: http://localhost:8501
+    ports:
+      - "8000:8000"
+    volumes:
+      - appdata:/app/data          # history + feedback database
+      - ./evals/feedback:/app/evals/feedback
+      - ./sources:/app/sources     # approved few-shot examples are written here
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  ui:
+    build: *app-build
+    command: ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+    environment:
+      API_URL: http://api:8000
+      API_KEY: ${API_KEY:?Set API_KEY in .env (one of the API_KEYS)}
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  appdata:

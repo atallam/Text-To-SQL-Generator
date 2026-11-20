@@ -100,6 +100,9 @@ class ContextBuilder:
             Glossary.load(base / cfg.glossary, cfg.today_sql) if base and cfg.glossary else Glossary.empty()
         )
         examples = load_examples(base / cfg.examples, cfg.today_sql) if base and cfg.examples else []
+        approved = base / "examples.approved.yaml" if base else None  # human-approved user feedback
+        if approved is not None and approved.is_file():
+            examples = [*examples, *load_examples(approved, cfg.today_sql)]
         provider = SchemaProvider(
             build=lambda: introspect_connector(connector),
             fingerprint=lambda: current_fingerprint(cfg, connector.engine()),

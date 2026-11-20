@@ -15,3 +15,5 @@ evals/reports/*.json
 *.log
 .idea/
 .vscode/
+data/*.db
+data/*.db-journal
