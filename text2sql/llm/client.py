@@ -69,8 +69,8 @@ class LLMClient:
             self._sdk = sdk_client
         else:
             key = self.settings.anthropic_api_key
-            if key is None:
-                raise RuntimeError("ANTHROPIC_API_KEY is not set")
+            if key is None or not key.get_secret_value().strip():
+                raise RuntimeError("ANTHROPIC_API_KEY is not set (it is empty in .env)")
             self._sdk = anthropic.Anthropic(
                 api_key=key.get_secret_value(),
                 timeout=self.settings.llm_timeout_s,
