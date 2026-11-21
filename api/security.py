@@ -66,7 +66,7 @@ def require_key(
                 status_code=503,
                 detail="The API has no keys configured. Set API_KEYS in .env (comma-separated) and restart.",
             )
-        if not key or not _match(key, cfg.keys):
+        if not key or not _match(key, cfg.keys + cfg.admin_keys):  # an admin key is also a valid API key
             raise HTTPException(status_code=401, detail="Missing or invalid API key (X-API-Key header).")
         caller = "key-" + hashlib.sha256(key.encode()).hexdigest()[:8]
     limiter.check(caller, cfg.api_rate_limit_per_minute)

@@ -117,7 +117,7 @@ class FakeT2S:
             return self.next
         if question.lower().startswith("what is my revenue") and not clarifications:
             return clarification_outcome()
-        return success_outcome(question)
+        return success_outcome(question, audit=f"aud{len(self.asked):09d}")  # unique per call, like the real one
 
     def run_sql(self, sql):
         self.ran.append(sql)

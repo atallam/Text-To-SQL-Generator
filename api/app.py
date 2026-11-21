@@ -303,8 +303,9 @@ def create_app(
                     detail = f"Added to {path.name} as a candidate eval case."
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from None
-        store.review_feedback(feedback_id, "approved" if req.decision == "approve" else "rejected", admin)
-        return {"id": feedback_id, "review_status": req.decision + "d", "detail": detail}
+        status = "approved" if req.decision == "approve" else "rejected"
+        store.review_feedback(feedback_id, status, admin)
+        return {"id": feedback_id, "review_status": status, "detail": detail}
 
     # -- ops ----------------------------------------------------------------------------------
     @app.get("/healthz", tags=["ops"], summary="Liveness and dependency check (no auth)")
