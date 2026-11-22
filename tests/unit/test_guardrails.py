@@ -54,6 +54,31 @@ def test_executed_sql_is_regenerated_so_comments_never_reach_the_database():
     assert d.allowed and "DROP" not in d.sql and "--" not in d.sql and "/*" not in d.sql
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT ROUND(AVG(id), 1) FROM orders",  # sqlglot adds a CAST here, which used to fail the round trip
+        "SELECT supplier_id, ROUND(AVG(id), 2) AS a FROM orders GROUP BY supplier_id ORDER BY a DESC",
+        "SELECT ROUND(SUM(id) / COUNT(*), 2) FROM orders",
+        "SELECT ROUND(100.0 * COUNT(*) / NULLIF((SELECT COUNT(*) FROM orders), 0), 1) FROM orders",
+        "SELECT ROUND(AVG(id)::numeric, 1) FROM orders",
+    ],
+)
+def test_common_rounded_aggregates_are_not_refused_by_the_round_trip(sql):
+    d = check(sql)
+    assert d.allowed, d.violations
+    assert check(d.sql).sql == d.sql  # the executed text is a fixed point: running it again changes nothing
+
+
+def test_canonicalisation_does_not_weaken_the_safety_rules():
+    for sql in [
+        "SELECT ROUND(AVG(id), 1) FROM orders; DROP TABLE orders",
+        "SELECT ROUND(AVG(id), 1) FROM pg_catalog.pg_tables",
+        "SELECT ROUND(AVG(id), 1), pg_sleep(5) FROM orders",
+    ]:
+        assert not check(sql).allowed, sql
+
+
 # -- tables --------------------------------------------------------------------------------------
 def test_table_names_are_case_normalised_like_postgres():
     assert check("SELECT * FROM ORDERS").allowed  # unquoted -> lower-case

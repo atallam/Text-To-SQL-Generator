@@ -8,6 +8,11 @@ terms:
       supplier can make which part (price, lead time, MOQ) and a part can have several suppliers. rmas and
       purchase_orders carry supplier_id directly.
     aliases: [vendor, vendors, by supplier, per supplier, each supplier]
+  inventory:
+    definition: >-
+      Current stock levels are in the inventory table, one row per part and site: on_hand, safety_stock and
+      reorder_point. It is a current snapshot, there is no stock history.
+    aliases: [on hand, on-hand, quantity on hand, stock, stock level, stock levels, warehouse stock, inventory levels]
   open_po:
     definition: A purchase order that is not finished, i.e. purchase_orders.status IN ('open', 'partially_received'). At line level use po_lines.status IN ('open', 'partially_received').
     aliases: [open pos, open purchase orders, open orders, outstanding po]

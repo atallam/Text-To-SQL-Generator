@@ -9,6 +9,11 @@ terms:
     definition: Sum of transactions.amount where txn_type = 'debit' and categories.kind = 'expense' (join transactions.category_id to categories.id).
     notes: Excludes transfers (card payments, investment transfers).
     aliases: [spending, expense]
+  payments:
+    definition: >-
+      Money paid out (rent, bills, subscriptions, fees) is in transactions with txn_type = 'debit'. Find the kind of
+      payment through categories.name (for example 'Rent') by joining transactions.category_id to categories.id.
+    aliases: [paid, pay, rent, bills, bill, subscription, subscriptions, payment]
   income:
     definition: Sum of transactions.amount where txn_type = 'credit' and categories.kind = 'income' (join transactions.category_id to categories.id).
     aliases: [earn, earned, earnings]

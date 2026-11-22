@@ -92,6 +92,16 @@ class GuardrailEngine:
             out.violations.append(Violation("G000", "query is too large to analyse"))
             return out
 
+        # Canonicalise once. sqlglot's output for some constructs is not a fixed point of its own parser
+        # (ROUND(AVG(x), 1) comes back with a CAST(... AS DECIMAL)), which would make the strict round-trip
+        # check below refuse a perfectly safe query. Every rule then runs on the tree that is actually
+        # executed, and the final round trip must be an exact fixed point.
+        canon = parser.parse(parser.render(tree, cfg.dialect), cfg.dialect)
+        if canon.error or len(canon.statements) != 1:
+            out.violations.append(Violation("G000", "query does not survive a parse/regenerate round trip"))
+            return out
+        tree = canon.statements[0]
+
         out.violations += rules.statement_allowlist(tree)
         out.violations += rules.forbidden_constructs(tree)
         if out.violations:

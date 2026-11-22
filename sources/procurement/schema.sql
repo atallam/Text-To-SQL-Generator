@@ -131,3 +131,21 @@ CREATE TABLE rmas (
 );
 CREATE INDEX idx_rmas_supplier ON rmas (supplier_id);
 CREATE INDEX idx_rmas_date ON rmas (rma_date);
+
+-- Descriptions: used by the schema-relevance filter, so questions find the right tables.
+COMMENT ON TABLE suppliers IS 'Supplier master: one row per supplier with country, region, tier and payment terms.';
+COMMENT ON TABLE parts IS 'Part master for direct materials: part number, category, standard cost, default MOQ and planned lead time.';
+COMMENT ON TABLE supplier_parts IS 'Catalog of which supplier can supply which part, with that supplier price, lead time and MOQ. Not used to attribute POs, receipts or pushouts to a supplier.';
+COMMENT ON TABLE purchase_orders IS 'PO header: one row per purchase order. Links a PO to its supplier (supplier_id), buyer, order date and status.';
+COMMENT ON TABLE po_lines IS 'PO line: one row per part on a PO with quantity, unit price, requested_date (original ask) and promised_date (current supplier commitment).';
+COMMENT ON TABLE po_changes IS 'Change history of PO lines: pushouts and pull-ins (date moves), quantity changes and cancellations, with reason and who initiated them.';
+COMMENT ON TABLE shipments IS 'Advance ship notice (ASN) per PO shipment: carrier, ship date, ETA and shipment status.';
+COMMENT ON TABLE shipment_lines IS 'Quantity of each PO line included in a shipment (ASN).';
+COMMENT ON TABLE receipts IS 'Goods receipts per PO line: quantity received and quantity rejected on the receipt date.';
+COMMENT ON TABLE inventory IS 'Current stock per part and site (Hyderabad, Austin, Penang): on-hand quantity, safety stock and reorder point.';
+COMMENT ON TABLE rmas IS 'Return material authorizations: defective, wrong or damaged parts sent back to a supplier.';
+COMMENT ON COLUMN inventory.on_hand IS 'Units currently in stock at the site.';
+COMMENT ON COLUMN po_lines.requested_date IS 'Date the buyer originally asked for.';
+COMMENT ON COLUMN po_lines.promised_date IS 'Current delivery date committed by the supplier, after any pushouts.';
+COMMENT ON COLUMN po_changes.change_type IS 'pushout = date moved later, pullin = date moved earlier.';
+COMMENT ON COLUMN receipts.quantity_rejected IS 'Units rejected on receipt (part of quantity_received).';
