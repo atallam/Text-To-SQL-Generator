@@ -1,0 +1,31 @@
+name: procurement
+display_name: Procurement (synthetic demo data)
+dialect: postgresql
+schema_name: public
+connection:
+  readonly_url_env: PROCUREMENT_READONLY_URL
+  admin_url_env: PROCUREMENT_ADMIN_URL
+  readonly_role: t2s_readonly_procurement   # roles are per Postgres server, so not shared with WealthLens
+statement_timeout_ms: 10000
+max_rows: 1000
+glossary: glossary.yaml
+examples: examples.yaml
+schema_file: schema.sql
+seed_module: text2sql.seed.procurement
+as_of_date: 2026-09-30   # demo data ends here; "last month" means August 2026, not the real calendar
+sample_values:
+  default: never          # supplier names, part numbers, buyers are never shown to the LLM
+  allow:
+    - suppliers.region
+    - suppliers.tier
+    - parts.category
+    - purchase_orders.status
+    - po_lines.status
+    - po_changes.change_type
+    - po_changes.reason
+    - po_changes.initiated_by
+    - shipments.status
+    - shipments.carrier
+    - inventory.site
+    - rmas.reason
+    - rmas.status

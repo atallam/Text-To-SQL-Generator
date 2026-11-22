@@ -1,6 +1,7 @@
 """Schema, seed and read-only role bootstrap. Uses the ADMIN url; never used by the API at runtime."""
 from __future__ import annotations
 
+import importlib
 import re
 from pathlib import Path
 
@@ -9,8 +10,8 @@ from psycopg import sql
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from text2sql.seed.wealthlens import TABLE_ORDER, generate
 
+DEFAULT_SEED_MODULE = "text2sql.seed.wealthlens"
 _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
@@ -19,17 +20,33 @@ def _psycopg_dsn(sqlalchemy_url: str) -> str:
     return url.render_as_string(hide_password=False)
 
 
+def ensure_database(admin_url: str) -> bool:
+    """Create the database named in ``admin_url`` if it does not exist yet. Returns True if it was created."""
+    url = make_url(admin_url)
+    name = url.database or ""
+    if not _IDENT.match(name):
+        raise ValueError(f"database name {name!r} must be a lowercase identifier")
+    maintenance = url.set(database="postgres")
+    with psycopg.connect(_psycopg_dsn(maintenance.render_as_string(hide_password=False)), autocommit=True) as conn:
+        if conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone():
+            return False
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        return True
+
+
 def apply_schema(admin_url: str, schema_file: Path) -> None:
     with psycopg.connect(_psycopg_dsn(admin_url), autocommit=True) as conn:
         conn.execute(schema_file.read_text(encoding="utf-8"))
 
 
-def seed_tables(admin_url: str, seed: int = 42) -> dict[str, int]:
-    data = generate(seed)
+def seed_tables(admin_url: str, seed: int = 42, module: str = DEFAULT_SEED_MODULE) -> dict[str, int]:
+    """Insert the synthetic rows from ``module`` (needs TABLE_ORDER and generate(seed)), parents first."""
+    seeder = importlib.import_module(module)
+    data = seeder.generate(seed)
     engine = create_engine(admin_url)
     counts: dict[str, int] = {}
     with engine.begin() as conn:
-        for table in TABLE_ORDER:
+        for table in seeder.TABLE_ORDER:
             rows = data[table]
             cols = list(rows[0].keys())
             stmt = text(

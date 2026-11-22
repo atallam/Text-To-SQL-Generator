@@ -12,6 +12,9 @@ x-app-env: &app-env
   WEALTHLENS_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/wealthlens
   WEALTHLENS_READONLY_URL: postgresql+psycopg://t2s_readonly:${WEALTHLENS_READONLY_PASSWORD:?Set WEALTHLENS_READONLY_PASSWORD in .env}@db:5432/wealthlens
   WEALTHLENS_READONLY_PASSWORD: ${WEALTHLENS_READONLY_PASSWORD}
+  PROCUREMENT_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/procurement
+  PROCUREMENT_READONLY_URL: postgresql+psycopg://t2s_readonly_procurement:${PROCUREMENT_READONLY_PASSWORD:-${WEALTHLENS_READONLY_PASSWORD}}@db:5432/procurement
+  PROCUREMENT_READONLY_PASSWORD: ${PROCUREMENT_READONLY_PASSWORD:-${WEALTHLENS_READONLY_PASSWORD}}
 
 x-app-build: &app-build
   context: .
@@ -35,10 +38,10 @@ services:
       timeout: 3s
       retries: 10
 
-  # One-shot: creates the schema, synthetic data and the SELECT-only role. Safe to re-run.
+  # One-shot: creates each source's database, schema, synthetic data and SELECT-only role. Safe to re-run.
   seed:
     build: *app-build
-    command: ["python", "-m", "scripts.seed_wealthlens"]
+    command: ["sh", "-c", "python -m scripts.seed_source wealthlens && python -m scripts.seed_source procurement"]
     environment: *app-env
     depends_on:
       db:

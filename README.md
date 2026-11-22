@@ -137,6 +137,23 @@ Or everything in containers (Postgres, seed, API, UI): `docker compose up --buil
 - **Feedback flywheel with a human gate:** thumbs-up becomes a *candidate few-shot example*, thumbs-down a *candidate eval case*. Nothing changes answers until an admin (`API_ADMIN_KEYS`) approves it via `/v1/feedback/{id}/review`. Approved examples are re-checked by the guardrails and written to `sources/<name>/examples.approved.yaml`; approved eval cases go to `evals/feedback/<name>.jsonl` for you to review and move into the golden set.
 - **History** lives in `data/app.db` (SQLite, git-ignored), per session.
 
+## Second source: procurement (synthetic)
+
+A direct-materials procurement database (suppliers, parts, POs and lines, PO changes/pushouts, ASN shipments,
+receipts, inventory, RMAs; 280 POs ending 2026-09-30). It is a config-only source: `sources/procurement/` plus a
+seed generator, no changes to the pipeline.
+
+```powershell
+# .env: copy the PROCUREMENT_* lines from .env.example; use your own Postgres admin password in PROCUREMENT_ADMIN_URL
+python -m scripts.seed_source procurement   # creates the database if missing, schema, data, read-only role
+# restart uvicorn, then pick "Procurement" in the UI's Data source box
+python -m scripts.ask --source procurement "Which suppliers had the most pushouts in the last 90 days?"
+```
+
+`docker compose up --build` seeds both sources. The glossary asks for clarification on "spend" (ordered vs received value)
+and "on time" (against the promised vs the originally requested date). It also tells the model to attribute anything to a
+supplier through `purchase_orders.supplier_id`, not `supplier_parts` (the part catalog).
+
 ## Evaluation data (Hugging Face)
 
 Test data comes from [`gretelai/synthetic_text_to_sql`](https://huggingface.co/datasets/gretelai/synthetic_text_to_sql).

@@ -1,0 +1,152 @@
+# Few-shot question -> SQL pairs for the procurement source (PostgreSQL).
+# Every example is executed against the seeded database by tests/integration, so a schema change that
+# breaks one fails CI. `tables` must list every table the SQL touches.
+examples:
+  - question: How many purchase orders are open right now?
+    tables: [purchase_orders]
+    sql: |
+      SELECT COUNT(*) AS open_pos
+      FROM purchase_orders
+      WHERE status IN ('open', 'partially_received')
+
+  - question: Which suppliers have the most open PO lines?
+    tables: [po_lines, purchase_orders, suppliers]
+    sql: |
+      SELECT s.name, COUNT(*) AS open_lines
+      FROM po_lines l
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN suppliers s ON s.id = p.supplier_id
+      WHERE l.status IN ('open', 'partially_received')
+      GROUP BY s.name
+      ORDER BY open_lines DESC
+      LIMIT 5
+
+  - question: How many pushouts did each supplier have in the last 90 days?
+    tables: [po_changes, po_lines, purchase_orders, suppliers]
+    sql: |
+      SELECT s.name, COUNT(*) AS pushouts
+      FROM po_changes c
+      JOIN po_lines l ON l.id = c.po_line_id
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN suppliers s ON s.id = p.supplier_id
+      WHERE c.change_type = 'pushout'
+        AND c.changed_on > {TODAY} - interval '90 days'
+      GROUP BY s.name
+      ORDER BY pushouts DESC
+
+  - question: What is the average pushout length in days by reason?
+    tables: [po_changes]
+    sql: |
+      SELECT c.reason, ROUND(AVG(c.new_date - c.old_date), 1) AS avg_pushout_days, COUNT(*) AS pushouts
+      FROM po_changes c
+      WHERE c.change_type = 'pushout'
+      GROUP BY c.reason
+      ORDER BY avg_pushout_days DESC
+
+  - question: What is our ordered spend by supplier region this year?
+    tables: [po_lines, purchase_orders, suppliers]
+    sql: |
+      SELECT s.region, SUM(l.quantity * l.unit_price) AS ordered_spend
+      FROM po_lines l
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN suppliers s ON s.id = p.supplier_id
+      WHERE l.status <> 'cancelled'
+        AND p.order_date >= date_trunc('year', {TODAY})
+      GROUP BY s.region
+      ORDER BY ordered_spend DESC
+
+  - question: Show monthly ordered spend for the last 6 months
+    tables: [po_lines, purchase_orders]
+    sql: |
+      SELECT date_trunc('month', p.order_date)::date AS month, SUM(l.quantity * l.unit_price) AS ordered_spend
+      FROM po_lines l
+      JOIN purchase_orders p ON p.id = l.po_id
+      WHERE l.status <> 'cancelled'
+        AND p.order_date >= date_trunc('month', {TODAY}) - interval '5 months'
+      GROUP BY 1
+      ORDER BY 1
+
+  - question: Which open PO lines are past their promised date?
+    tables: [po_lines, purchase_orders, parts, suppliers]
+    sql: |
+      SELECT p.po_number, l.line_no, pt.part_number, s.name AS supplier, l.promised_date,
+             ({TODAY} - l.promised_date) AS days_overdue
+      FROM po_lines l
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN parts pt ON pt.id = l.part_id
+      JOIN suppliers s ON s.id = p.supplier_id
+      WHERE l.status IN ('open', 'partially_received')
+        AND l.promised_date < {TODAY}
+      ORDER BY days_overdue DESC
+
+  - question: What is the on-time delivery rate by supplier against the promised date?
+    tables: [receipts, po_lines, purchase_orders, suppliers]
+    sql: |
+      WITH first_receipt AS (
+        SELECT po_line_id, MIN(received_on) AS received_on FROM receipts GROUP BY po_line_id
+      )
+      SELECT s.name, ROUND(100.0 * AVG(CASE WHEN fr.received_on <= l.promised_date THEN 1 ELSE 0 END), 1) AS otd_pct,
+             COUNT(*) AS lines
+      FROM first_receipt fr
+      JOIN po_lines l ON l.id = fr.po_line_id
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN suppliers s ON s.id = p.supplier_id
+      GROUP BY s.name
+      ORDER BY otd_pct
+
+  - question: What is the reject rate by supplier?
+    tables: [receipts, po_lines, purchase_orders, suppliers]
+    sql: |
+      SELECT s.name,
+             ROUND(100.0 * SUM(r.quantity_rejected) / NULLIF(SUM(r.quantity_received), 0), 2) AS reject_rate_pct
+      FROM receipts r
+      JOIN po_lines l ON l.id = r.po_line_id
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN suppliers s ON s.id = p.supplier_id
+      GROUP BY s.name
+      ORDER BY reject_rate_pct DESC
+
+  - question: Which parts are below safety stock at any site?
+    tables: [inventory, parts]
+    sql: |
+      SELECT pt.part_number, pt.description, i.site, i.on_hand, i.safety_stock
+      FROM inventory i
+      JOIN parts pt ON pt.id = i.part_id
+      WHERE i.on_hand < i.safety_stock
+      ORDER BY (i.safety_stock - i.on_hand) DESC
+
+  - question: Which shipments are delayed or arriving in the next 7 days?
+    tables: [shipments, purchase_orders]
+    sql: |
+      SELECT sh.asn_number, p.po_number, sh.carrier, sh.eta_date, sh.status
+      FROM shipments sh
+      JOIN purchase_orders p ON p.id = sh.po_id
+      WHERE sh.status = 'delayed'
+         OR (sh.status = 'in_transit' AND sh.eta_date BETWEEN {TODAY} AND {TODAY} + 7)
+      ORDER BY sh.eta_date
+
+  - question: Show open RMAs by supplier and reason
+    tables: [rmas, suppliers]
+    sql: |
+      SELECT s.name, r.reason, COUNT(*) AS rmas, SUM(r.quantity) AS units
+      FROM rmas r
+      JOIN suppliers s ON s.id = r.supplier_id
+      WHERE r.status = 'open'
+      GROUP BY s.name, r.reason
+      ORDER BY units DESC
+
+  - question: Which parts have the biggest gap between actual and planned lead time?
+    tables: [receipts, po_lines, purchase_orders, parts]
+    sql: |
+      WITH first_receipt AS (
+        SELECT po_line_id, MIN(received_on) AS received_on FROM receipts GROUP BY po_line_id
+      )
+      SELECT pt.part_number, pt.lead_time_days AS planned_days,
+             ROUND(AVG(fr.received_on - p.order_date), 1) AS actual_days
+      FROM first_receipt fr
+      JOIN po_lines l ON l.id = fr.po_line_id
+      JOIN purchase_orders p ON p.id = l.po_id
+      JOIN parts pt ON pt.id = l.part_id
+      GROUP BY pt.part_number, pt.lead_time_days
+      ORDER BY AVG(fr.received_on - p.order_date) - pt.lead_time_days DESC
+      LIMIT 10

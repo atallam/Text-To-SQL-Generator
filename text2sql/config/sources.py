@@ -18,6 +18,10 @@ from text2sql.config.settings import Settings, get_env, get_settings
 class ConnectionConfig(BaseModel):
     readonly_url_env: str
     admin_url_env: str | None = None  # only used for seeding / bootstrap, never by the API
+    # Seeding only: the SELECT-only role to create and the env var holding its password. A role is
+    # cluster-wide in Postgres, so sources sharing a server should use different roles.
+    readonly_role: str = "t2s_readonly"
+    readonly_password_env: str | None = None  # default: <SOURCE NAME>_READONLY_PASSWORD
 
 
 class SampleValuePolicy(BaseModel):
@@ -57,6 +61,9 @@ class SourceConfig(BaseModel):
     guardrails: str | None = None  # per-source overrides for text2sql/config/guardrails.yaml
     validation: str | None = None  # per-source overrides for text2sql/config/confidence.yaml
     examples: str | None = None  # few-shot question -> SQL pairs, file name inside the source folder
+    schema_file: str = "schema.sql"  # DDL used by `scripts.seed_source` (file name inside the source folder)
+    # Dotted module with TABLE_ORDER and generate(seed) -> {table: [row dicts]}; None = nothing to seed.
+    seed_module: str | None = None
     exclude_tables: list[str] = Field(default_factory=list)  # never introspected or shown to the LLM
     # "Today" for relative dates ("last month"). None = the real CURRENT_DATE. Demo data with a fixed
     # end date sets this so questions keep returning rows as real time moves on.

@@ -1,0 +1,109 @@
+# Business glossary for the procurement source (PostgreSQL). Same format as sources/wealthlens/glossary.yaml.
+terms:
+  supplier:
+    definition: >-
+      The supplier of a PO line is found through the PO header: po_lines.po_id -> purchase_orders.id, then
+      purchase_orders.supplier_id -> suppliers.id. Use this path to attribute spend, receipts, rejects, pushouts,
+      deliveries and lateness to a supplier. Do NOT use supplier_parts for that: it is only the catalog of which
+      supplier can make which part (price, lead time, MOQ) and a part can have several suppliers. rmas and
+      purchase_orders carry supplier_id directly.
+    aliases: [vendor, vendors, by supplier, per supplier, each supplier]
+  open_po:
+    definition: A purchase order that is not finished, i.e. purchase_orders.status IN ('open', 'partially_received'). At line level use po_lines.status IN ('open', 'partially_received').
+    aliases: [open pos, open purchase orders, open orders, outstanding po]
+  pushout:
+    definition: >-
+      A supplier or buyer moving a promised date later. Rows in po_changes with change_type = 'pushout';
+      the pushout length in days is new_date - old_date. A pull-in is change_type = 'pullin' (date moved earlier).
+    aliases: [pushouts, push out, pushed out, push-out, delayed commitment]
+  backlog:
+    definition: >-
+      Quantity still to be received on live lines: po_lines.quantity minus the sum of receipts.quantity_received for that
+      line, for lines with status IN ('open', 'partially_received'). Cancelled lines are never backlog.
+    aliases: [open quantity, outstanding quantity, open demand]
+  lead_time:
+    definition: >-
+      Planned lead time is parts.lead_time_days (or supplier_parts.lead_time_days for one supplier). Actual lead time is
+      the first receipts.received_on for a line minus purchase_orders.order_date.
+    notes: If the user does not say planned or actual, show both side by side.
+    aliases: [lead times]
+  reject_rate:
+    definition: Sum of receipts.quantity_rejected divided by sum of receipts.quantity_received, as a percentage. Accepted units are quantity_received minus quantity_rejected.
+    aliases: [rejection rate, defect rate, quality rate, reject]
+  fill_rate:
+    definition: Accepted quantity received divided by quantity ordered on non-cancelled po_lines, as a percentage.
+    aliases: [fulfilment rate, fulfillment rate]
+  below_safety_stock:
+    definition: inventory rows where on_hand < safety_stock (per part and site). Reorder is due when on_hand < reorder_point.
+    aliases: [low stock, stockout risk, shortage risk, stock risk]
+  price_variance:
+    definition: PO unit price versus standard cost, (po_lines.unit_price - parts.standard_cost) * quantity (purchase price variance). Positive means paid more than standard.
+    aliases: [ppv, purchase price variance, price difference]
+  moq:
+    definition: Minimum order quantity. parts.moq is the default; supplier_parts.moq is the supplier-specific value.
+    aliases: [minimum order quantity, minimum order]
+  asn:
+    definition: Advance ship notice. One row in shipments per ASN (shipments.asn_number); its lines are in shipment_lines.
+    aliases: [advance ship notice, ship notice]
+  rma:
+    definition: Return material authorization for defective, wrong or damaged goods; rows in rmas (open, shipped_back, credited, closed).
+    aliases: [rmas, returns, return to supplier]
+
+  spend:
+    definition: Money committed to or paid for materials.
+    ambiguous: true
+    aliases: [spending, po value, purchase value, procurement spend, cost of purchases]
+    interpretations:
+      - label: Ordered value (quantity x unit price on non-cancelled PO lines, by PO order date)
+        cues: [ordered, committed, po value, placed, issued, commitment]
+        example_sql: |
+          SELECT SUM(l.quantity * l.unit_price) AS ordered_spend
+          FROM po_lines l
+          JOIN purchase_orders p ON p.id = l.po_id
+          WHERE l.status <> 'cancelled'
+            AND p.order_date >= {TODAY} - interval '12 months'
+      - label: Received value (accepted units received x PO unit price, by receipt date)
+        cues: [received, delivered, actual, landed, goods received, invoiced, paid]
+        example_sql: |
+          SELECT SUM((r.quantity_received - r.quantity_rejected) * l.unit_price) AS received_spend
+          FROM receipts r
+          JOIN po_lines l ON l.id = r.po_line_id
+          WHERE r.received_on >= {TODAY} - interval '12 months'
+
+  on_time:
+    definition: Whether goods arrived by the due date.
+    ambiguous: true
+    aliases: [on-time, on time delivery, otd, late, lateness, delivery performance, delayed deliveries, overdue]
+    interpretations:
+      - label: Against the supplier's current promised date (po_lines.promised_date)
+        cues: [promised, committed date, supplier commitment, against promise, current date]
+        example_sql: |
+          WITH first_receipt AS (
+            SELECT po_line_id, MIN(received_on) AS received_on FROM receipts GROUP BY po_line_id
+          )
+          SELECT s.name, ROUND(100.0 * AVG(CASE WHEN fr.received_on <= l.promised_date THEN 1 ELSE 0 END), 1) AS otd_pct
+          FROM first_receipt fr
+          JOIN po_lines l ON l.id = fr.po_line_id
+          JOIN purchase_orders p ON p.id = l.po_id
+          JOIN suppliers s ON s.id = p.supplier_id
+          GROUP BY s.name
+      - label: Against the buyer's original requested date (po_lines.requested_date, ignores pushouts)
+        cues: [requested, original, buyer date, need date, original date, request date, before pushout]
+        example_sql: |
+          WITH first_receipt AS (
+            SELECT po_line_id, MIN(received_on) AS received_on FROM receipts GROUP BY po_line_id
+          )
+          SELECT s.name, ROUND(100.0 * AVG(CASE WHEN fr.received_on <= l.requested_date THEN 1 ELSE 0 END), 1) AS otd_pct
+          FROM first_receipt fr
+          JOIN po_lines l ON l.id = fr.po_line_id
+          JOIN purchase_orders p ON p.id = l.po_id
+          JOIN suppliers s ON s.id = p.supplier_id
+          GROUP BY s.name
+
+conventions:
+  - po_lines.requested_date is the date the buyer originally asked for; promised_date is the supplier's current commitment after any pushouts.
+  - Cancelled po_lines (status 'cancelled') are excluded from spend, backlog and fill rate.
+  - receipts.quantity_received includes rejected units; accepted units are quantity_received minus quantity_rejected.
+  - A line can have several receipts (partial deliveries); use MIN(received_on) for first arrival and SUM for totals.
+  - All prices and values are in USD. Dates are calendar dates; the data ends on 2026-09-30.
+  - suppliers.is_active = false means the supplier is no longer used for new orders.
