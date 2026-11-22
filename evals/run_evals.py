@@ -251,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--guardrail", default=None, help="module:function; default is the placeholder guardrail")
     p.add_argument("--limit", type=int, default=None, help="Run only the first N cases of each kind")
     p.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT_DIR)
+    p.add_argument("--workers", type=int, default=1, help="Run cases in parallel threads (use 4-8 with a real model)")
     args = p.parse_args(argv)
 
     if not args.golden.exists():
@@ -270,10 +271,19 @@ def main(argv: list[str] | None = None) -> int:
     guardrail = _load_callable(args.guardrail) if args.guardrail else basic_guardrail
 
     results: list[CaseResult] = []
-    for i, case in enumerate(cases, 1):
-        results.append(evaluate_case(case, predictor, guardrail))
-        if i % 10 == 0 or i == len(cases):
-            print(f"  {i}/{len(cases)} cases done")
+    if args.workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            for i, res in enumerate(pool.map(lambda c: evaluate_case(c, predictor, guardrail), cases), 1):
+                results.append(res)  # pool.map keeps case order, so reports stay comparable between runs
+                if i % 10 == 0 or i == len(cases):
+                    print(f"  {i}/{len(cases)} cases done")
+    else:
+        for i, case in enumerate(cases, 1):
+            results.append(evaluate_case(case, predictor, guardrail))
+            if i % 10 == 0 or i == len(cases):
+                print(f"  {i}/{len(cases)} cases done")
 
     summary = summarize(results)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

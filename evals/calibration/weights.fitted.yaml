@@ -1,7 +1,7 @@
 calibrated: false
 weights:
-  backtranslation: 0.1
-  multiquery: 0.5
+  backtranslation: 0.25
+  multiquery: 0.45
   sanity: 0.2
-  schema_coverage: 0.1
-  syntax: 0.1
+  schema_coverage: 0.05
+  syntax: 0.05
