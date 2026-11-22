@@ -3,7 +3,46 @@
 Natural-language questions to SQL, with layered guardrails, hallucination detection and a decomposed
 confidence score. Production-tier build; see `PRD.md` for scope, phases and decisions.
 
-**Status:** Phases 0-3 complete (foundation, schema-aware prompts, guardrails, validation and confidence); Phase 4 (API + Streamlit UI) added, pending a first end-to-end run on your machine. Eval numbers will lead this README after Phase 6.
+**Status:** Phases 0-4 complete and evaluated end to end on two sources (WealthLens finance, synthetic procurement).
+Remaining: demo video and write-up.
+
+## Results
+
+Every number below is reproducible from this repo (commands in "Evaluation"). Model: Claude Sonnet 5.5 generates,
+Claude Haiku 5.5 judges. Data is synthetic. Small golden sets, so read these as a regression suite and a sanity
+check, not a benchmark.
+
+| Eval | Result |
+|---|---|
+| Full pipeline, procurement (25 cases) | **93.8%** strict / 100% relaxed execution accuracy; 3/3 ambiguous questions clarified; 3/3 unanswerable refused; 0 unsafe executed |
+| Full pipeline, WealthLens (24 cases) | **66.7%** strict / 100% relaxed; 100% clarification; 100% refusal; 0 unsafe executed |
+| Red-team, guardrail layer (77 dangerous, 20 harmless look-alikes) | 75/77 blocked, 0 escaped, 20/20 look-alikes allowed. The other 2 are resource-exhaustion cases left to the database timeout and read-only role |
+| One-shot Claude baseline, no pipeline (HF golden set, 100 cases) | 63.3% execution accuracy; 100% refusal on unanswerable; 0 unsafe executed |
+| Confidence calibration (54 labeled variants) | 98% of wrong SQL flagged (confidence < 0.8); 7% of correct SQL falsely flagged; AUC 0.956 |
+
+**Strict vs relaxed.** Strict requires the same rows and the same columns as the reference query. Relaxed also accepts
+a result that contains the reference answer plus extra columns (for example a `name` next to a `symbol`). The gap
+is almost entirely answer shape, not wrong data. A prompt rule to return only requested columns moved WealthLens strict
+accuracy from 13.3% to 66.7%.
+
+## Limitations
+
+* **Confidence does not catch answer-shape differences.** Of 5 WealthLens answers that were right but differently
+  shaped, only 1 was flagged. The score is built to catch wrong joins, filters, aggregations and date ranges (98% recall in
+  calibration), not "right data, extra column".
+* **Small and synthetic.** 24 and 25 hand-written cases per source; the 54 calibration variants were generated
+  by perturbing known-good SQL, so they are easier than organic mistakes.
+* **Golden-set corrections are disclosed.** After the first run I changed one reference query to match the glossary
+  (an "open" PO line is `open` or `partially_received`) and allowed one alternative shape (pushout and pull-in counts as rows
+  or as columns). Both are in `evals/pipeline_golden/procurement.yaml`.
+* **Calibration was fitted and scored on the same labelled set.** Fitted weights (cross-validated AUC 0.979) are in
+  `evals/calibration/weights.fitted.yaml` and are not yet the default in `text2sql/config/confidence.yaml`.
+* **The guardrail is the main defense against some Postgres functions** (a few `pg_*` and settings functions). The
+  read-only role and statement timeout are a second layer, not a complete one for these.
+* **Latency is 7 to 8 seconds per question** on average, because generation, back-translation and multi-query validation
+  are separate model calls.
+* **Prompt change after the baseline.** The 63.3% baseline and the calibration run predate the "return only the requested
+  columns" prompt rule.
 
 ## Quick start (PowerShell)
 
@@ -174,12 +213,26 @@ New to evals? Start with [`docs/Evals-101.md`](docs/Evals-101.md).
 Reports land in `evals/reports/`. To score the real pipeline, add a predictor in `evals/predictors.py` and pass
 the Phase 2 guardrail with `--guardrail text2sql.guardrails:check_sql`. The run exits 1 if any unsafe statement executes.
 
+### Full-pipeline evaluation (both sources)
+
+Scores the real pipeline (context, generation, guardrails, execution, validation) against hand-written golden sets with
+ambiguous, unanswerable and unsafe questions as well as answerable ones.
+
+```powershell
+python -m evals.run_pipeline_evals --source procurement --workers 8
+python -m evals.run_pipeline_evals --source wealthlens --workers 8
+python -m evals.redteam --live --source wealthlens     # needs the seeded database
+```
+
+Cases live in `evals/pipeline_golden/<source>.yaml` (`kind`: answerable, ambiguous, unanswerable, unsafe; optional
+`gold_alt` for equivalent answer shapes). Reports land in `evals/reports/`.
+
 ## Safety model (built up across phases)
 
 1. SQL guardrails (AST-based allow-list) - Phase 2
 2. Read-only transaction + statement timeout - **done** (`readonly_connection`)
 3. SELECT-only database role - **done** (`ensure_readonly_role`)
-4. Answer validation and confidence score - Phase 3 (weights not yet calibrated on live model output)
+4. Answer validation and confidence score - **done** (calibrated on 54 live variants; see Results and Limitations)
 
 Demo data is fully synthetic. Never point the LLM at real personal data without setting column
 sample-value policy in `source.yaml`.
